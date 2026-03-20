@@ -10,12 +10,6 @@ Interaktive Web-App zum Lernen von Skalen, Intervallen und Tonpositionen auf dem
 
 **Ton-Finder** – Alle Positionen eines einzelnen Tons auf dem gesamten Griffbrett mit Auflistung aller Saite/Bund-Kombinationen.
 
-## Tech Stack
-
-- React 18
-- Vite
-- GitHub Pages (via GitHub Actions)
-
 ## Live
 
 [https://derzmu.github.io/fretboard-trainer/](https://derzmu.github.io/fretboard-trainer/)
