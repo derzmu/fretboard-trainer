@@ -37,16 +37,33 @@ const INTERVALS = {
 };
 
 const INTERVAL_COLORS = {
-  3: "#e74c3c",
-  4: "#e67e22",
-  5: "#d4a017",
-  7: "#2ecc71",
-  10: "#3498db",
-  11: "#9b59b6",
-  12: "#1abc9c",
+  3: "#e74c3c", 4: "#e67e22", 5: "#d4a017",
+  7: "#2ecc71", 10: "#3498db", 11: "#9b59b6", 12: "#1abc9c",
 };
 
 const DEGREE_COLORS = ["#ff2b49","#e67e22","#d4a017","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00bcd4","#8bc34a","#ff5722","#607d8b"];
+
+function getPentatonicBoxes(rootNote) {
+  const rootFretLowE = (rootNote - TUNING[5] + 12) % 12;
+
+  const boxDefs = [
+    { offset: 0, shape: [[5,0],[5,3],[4,0],[4,2],[3,0],[3,2],[2,0],[2,2],[1,0],[1,3],[0,0],[0,3]] },
+    { offset: 3, shape: [[5,0],[5,2],[4,0],[4,2],[3,0],[3,2],[2,0],[2,2],[1,0],[1,2],[0,0],[0,2]] },
+    { offset: 5, shape: [[5,0],[5,2],[4,0],[4,2],[3,0],[3,2],[2,0],[2,3],[1,0],[1,3],[0,0],[0,2]] },
+    { offset: 7, shape: [[5,0],[5,2],[4,0],[4,2],[3,0],[3,2],[2,0],[2,3],[1,0],[1,3],[0,0],[0,2]] },
+    { offset: 10, shape: [[5,0],[5,2],[4,0],[4,2],[3,0],[3,2],[2,0],[2,2],[1,0],[1,3],[0,0],[0,3]] },
+  ];
+
+  return boxDefs.map((box, idx) => {
+    let startFret = rootFretLowE + box.offset;
+    if (startFret === 0) startFret = 12;
+    const notes = box.shape.map(([s, f]) => ({ string: s, fret: startFret + f }));
+    const frets = notes.map(n => n.fret);
+    const minFret = Math.min(...frets);
+    const maxFret = Math.max(...frets);
+    return { index: idx + 1, startFret: minFret, endFret: maxFret, notes };
+  });
+}
 
 function getNoteAt(stringIdx, fret) {
   return (TUNING[stringIdx] + fret) % 12;
@@ -72,12 +89,25 @@ export default function App() {
   const [finderNote, setFinderNote] = useState(0);
   const [highlightRoot, setHighlightRoot] = useState(true);
   const [hoveredFret, setHoveredFret] = useState(null);
+  const [boxMode, setBoxMode] = useState(false);
+  const [activeBox, setActiveBox] = useState(1);
 
   const scaleNotes = useMemo(() => {
     if (mode !== "scales") return [];
     const pattern = SCALES[selectedScale];
     return pattern.map(i => (rootNote + i) % 12);
   }, [mode, rootNote, selectedScale]);
+
+  const pentatonicBoxes = useMemo(() => getPentatonicBoxes(rootNote), [rootNote]);
+
+  const currentBoxNotes = useMemo(() => {
+    if (!boxMode || mode !== "scales") return null;
+    const box = pentatonicBoxes[activeBox - 1];
+    if (!box) return null;
+    return new Set(box.notes.map(n => `${n.string}-${n.fret}`));
+  }, [boxMode, mode, activeBox, pentatonicBoxes]);
+
+  const isPentatonic = selectedScale === "Moll-Pentatonik" || selectedScale === "Dur-Pentatonik" || selectedScale === "Blues";
 
   const intervalData = useMemo(() => {
     if (mode !== "intervals") return { root: rootNote, semitones: 0 };
@@ -91,11 +121,20 @@ export default function App() {
     if (mode === "scales") {
       const degreeIdx = scaleNotes.indexOf(noteIdx);
       if (degreeIdx === -1) return { active: false, noteName, noteIdx };
+
+      if (boxMode && currentBoxNotes && !currentBoxNotes.has(`${stringIdx}-${fret}`)) {
+        return {
+          active: true, noteName, noteIdx, dimmed: true,
+          color: "#ccc", bg: "transparent", border: "#ddd",
+          isRoot: false, degree: degreeIdx + 1
+        };
+      }
+
       const isRoot = noteIdx === rootNote;
       const color = isRoot && highlightRoot ? "#fff" : DEGREE_COLORS[degreeIdx];
       const bg = isRoot && highlightRoot ? ACCENT : `${DEGREE_COLORS[degreeIdx]}18`;
       const border = isRoot && highlightRoot ? "#d9203c" : DEGREE_COLORS[degreeIdx];
-      return { active: true, noteName, noteIdx, color, bg, border, isRoot, degree: degreeIdx + 1 };
+      return { active: true, noteName, noteIdx, color, bg, border, isRoot, degree: degreeIdx + 1, dimmed: false };
     }
 
     if (mode === "intervals") {
@@ -120,7 +159,7 @@ export default function App() {
     }
 
     return { active: false, noteName, noteIdx };
-  }, [mode, scaleNotes, rootNote, highlightRoot, intervalData, selectedInterval, finderNote]);
+  }, [mode, scaleNotes, rootNote, highlightRoot, intervalData, selectedInterval, finderNote, boxMode, currentBoxNotes]);
 
   const fretWidths = useMemo(() => {
     const widths = [];
@@ -131,6 +170,16 @@ export default function App() {
   }, []);
 
   const totalWidth = fretWidths.reduce((a, b) => a + b, 0);
+
+  const activeBoxData = boxMode && mode === "scales" ? pentatonicBoxes[activeBox - 1] : null;
+  const boxHighlight = useMemo(() => {
+    if (!activeBoxData) return null;
+    let left = 30;
+    for (let i = 0; i < activeBoxData.startFret; i++) left += fretWidths[i];
+    let width = 0;
+    for (let i = activeBoxData.startFret; i <= Math.min(activeBoxData.endFret, FRET_COUNT); i++) width += fretWidths[i];
+    return { left, width };
+  }, [activeBoxData, fretWidths]);
 
   return (
     <div style={{ fontFamily: "'Manrope', -apple-system, sans-serif", background: "#fafafa", color: "#1a1a1a", minHeight: "100vh", padding: "20px 16px", boxSizing: "border-box" }}>
@@ -147,7 +196,7 @@ export default function App() {
             { id: "intervals", label: "Intervalle" },
             { id: "finder", label: "Ton-Finder" },
           ].map(m => (
-            <button key={m.id} onClick={() => setMode(m.id)} style={{
+            <button key={m.id} onClick={() => { setMode(m.id); setBoxMode(false); }} style={{
               flex: 1, padding: "10px 0", border: "none", borderRadius: 8, cursor: "pointer",
               fontSize: 13, fontWeight: 700, transition: "all 0.2s", letterSpacing: "-0.2px",
               background: mode === m.id ? "#fff" : "transparent",
@@ -158,10 +207,10 @@ export default function App() {
         </div>
 
         {/* Controls */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
           {mode !== "finder" && (
             <div style={{ flex: "1 1 140px" }}>
-              <label style={{ fontSize: 10, color: "#aaa", display: "block", marginBottom: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Grundton</label>
+              <label style={labelStyle}>Grundton</label>
               <select value={rootNote} onChange={e => setRootNote(+e.target.value)} style={selectStyle}>
                 {NOTES.map((n, i) => <option key={i} value={i}>{displayName(i)}</option>)}
               </select>
@@ -170,16 +219,30 @@ export default function App() {
 
           {mode === "scales" && (
             <div style={{ flex: "2 1 200px" }}>
-              <label style={{ fontSize: 10, color: "#aaa", display: "block", marginBottom: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Skala / Modus</label>
-              <select value={selectedScale} onChange={e => setSelectedScale(e.target.value)} style={selectStyle}>
+              <label style={labelStyle}>Skala / Modus</label>
+              <select value={selectedScale} onChange={e => { setSelectedScale(e.target.value); setBoxMode(false); }} style={selectStyle}>
                 {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           )}
 
+          {mode === "scales" && isPentatonic && (
+            <div style={{ flex: "0 0 auto" }}>
+              <button onClick={() => { setBoxMode(!boxMode); setActiveBox(1); }} style={{
+                padding: "9px 16px", border: "1px solid", borderRadius: 8, cursor: "pointer",
+                fontSize: 13, fontWeight: 700, transition: "all 0.2s",
+                background: boxMode ? ACCENT : "#fff",
+                borderColor: boxMode ? ACCENT : "#e0e0e0",
+                color: boxMode ? "#fff" : "#999",
+              }}>
+                Boxen
+              </button>
+            </div>
+          )}
+
           {mode === "intervals" && (
             <div style={{ flex: "2 1 200px" }}>
-              <label style={{ fontSize: 10, color: "#aaa", display: "block", marginBottom: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Intervall</label>
+              <label style={labelStyle}>Intervall</label>
               <select value={selectedInterval} onChange={e => setSelectedInterval(e.target.value)} style={selectStyle}>
                 {Object.keys(INTERVALS).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -188,7 +251,7 @@ export default function App() {
 
           {mode === "finder" && (
             <div style={{ flex: "1 1 140px" }}>
-              <label style={{ fontSize: 10, color: "#aaa", display: "block", marginBottom: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Ton finden</label>
+              <label style={labelStyle}>Ton finden</label>
               <select value={finderNote} onChange={e => setFinderNote(+e.target.value)} style={selectStyle}>
                 {NOTES.map((n, i) => <option key={i} value={i}>{displayName(i)}</option>)}
               </select>
@@ -196,11 +259,34 @@ export default function App() {
           )}
         </div>
 
+        {/* Box selector */}
+        {boxMode && mode === "scales" && (
+          <div style={{ display: "flex", gap: 5, marginBottom: 16, alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: "#aaa", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginRight: 4 }}>Box</span>
+            {[1, 2, 3, 4, 5].map(b => (
+              <button key={b} onClick={() => setActiveBox(b)} style={{
+                width: 36, height: 36, border: "1px solid", borderRadius: 8, cursor: "pointer",
+                fontSize: 14, fontWeight: 800, transition: "all 0.2s",
+                background: activeBox === b ? ACCENT : "#fff",
+                borderColor: activeBox === b ? ACCENT : "#eee",
+                color: activeBox === b ? "#fff" : "#999",
+                boxShadow: activeBox === b ? `0 2px 8px ${ACCENT}33` : "none",
+              }}>
+                {b}
+              </button>
+            ))}
+            <span style={{ fontSize: 12, color: "#aaa", marginLeft: 8 }}>
+              Bund {activeBoxData?.startFret}–{activeBoxData?.endFret}
+            </span>
+          </div>
+        )}
+
         {/* Info Bar */}
         <div style={{ background: "#fff", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, fontWeight: 500, border: "1px solid #eee" }}>
           {mode === "scales" && (
             <span>
               <strong style={{ color: ACCENT }}>{displayName(rootNote)} {selectedScale}</strong>
+              {boxMode && <span style={{ color: ACCENT, fontWeight: 700 }}> · Box {activeBox}</span>}
               <span style={{ color: "#ddd", margin: "0 10px" }}>|</span>
               <span style={{ color: "#888" }}>
                 {SCALES[selectedScale].map(i => displayName((rootNote + i) % 12)).join(" – ")}
@@ -240,7 +326,18 @@ export default function App() {
             </div>
 
             {/* Strings */}
-            <div style={{ background: "#fff", borderRadius: 12, padding: "10px 0", position: "relative", border: "1px solid #e8e8e8", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+            <div style={{ background: "#fff", borderRadius: 12, padding: "10px 0", position: "relative", border: "1px solid #e8e8e8", boxShadow: "0 2px 12px rgba(0,0,0,0.04)", overflow: "hidden" }}>
+
+              {/* Box highlight zone */}
+              {boxHighlight && (
+                <div style={{
+                  position: "absolute", top: 0, bottom: 0,
+                  left: boxHighlight.left, width: boxHighlight.width,
+                  background: `${ACCENT}08`, borderLeft: `2px solid ${ACCENT}22`, borderRight: `2px solid ${ACCENT}22`,
+                  zIndex: 1, pointerEvents: "none",
+                }} />
+              )}
+
               {/* Dot markers */}
               <div style={{ display: "flex", position: "absolute", top: 0, bottom: 0, left: 30, pointerEvents: "none" }}>
                 {fretWidths.map((w, fret) => (
@@ -261,7 +358,7 @@ export default function App() {
 
               {TUNING.map((_, stringIdx) => (
                 <div key={stringIdx} style={{ display: "flex", alignItems: "center", height: 36 }}>
-                  <div style={{ width: 30, textAlign: "center", fontSize: 11, fontWeight: 700, color: "#bbb", flexShrink: 0 }}>
+                  <div style={{ width: 30, textAlign: "center", fontSize: 11, fontWeight: 700, color: "#bbb", flexShrink: 0, zIndex: 3 }}>
                     {STRING_NAMES[stringIdx]}
                   </div>
                   {fretWidths.map((w, fret) => {
@@ -289,16 +386,18 @@ export default function App() {
 
                         {cell.active ? (
                           <div style={{
-                            width: 26, height: 26, borderRadius: "50%", display: "flex",
+                            width: cell.dimmed ? 20 : 26, height: cell.dimmed ? 20 : 26,
+                            borderRadius: "50%", display: "flex",
                             alignItems: "center", justifyContent: "center",
                             background: cell.bg, border: `2px solid ${cell.border}`,
-                            color: cell.color, fontSize: 10, fontWeight: 700,
+                            color: cell.color, fontSize: cell.dimmed ? 8 : 10, fontWeight: 700,
                             zIndex: 2, position: "relative",
-                            boxShadow: cell.isRoot ? `0 0 10px ${ACCENT}44` : "0 1px 3px rgba(0,0,0,0.06)",
-                            transform: isHovered ? "scale(1.2)" : "scale(1)",
-                            transition: "transform 0.15s",
+                            opacity: cell.dimmed ? 0.35 : 1,
+                            boxShadow: cell.isRoot && !cell.dimmed ? `0 0 10px ${ACCENT}44` : cell.dimmed ? "none" : "0 1px 3px rgba(0,0,0,0.06)",
+                            transform: isHovered && !cell.dimmed ? "scale(1.2)" : "scale(1)",
+                            transition: "transform 0.15s, opacity 0.2s",
                           }}>
-                            {cell.label || cell.noteName}
+                            {cell.dimmed ? "" : (cell.label || cell.noteName)}
                           </div>
                         ) : isHovered && fret > 0 ? (
                           <div style={{
@@ -393,6 +492,8 @@ export default function App() {
     </div>
   );
 }
+
+const labelStyle = { fontSize: 10, color: "#aaa", display: "block", marginBottom: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" };
 
 const selectStyle = {
   width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e0e0e0",
