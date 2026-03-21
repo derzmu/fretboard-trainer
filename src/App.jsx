@@ -43,9 +43,16 @@ const INTERVAL_COLORS = {
 
 const DEGREE_COLORS = ["#ff2b49","#e67e22","#d4a017","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00bcd4","#8bc34a","#ff5722","#607d8b"];
 
+// Pentatonic box patterns: each box defines [fretOffset, [[string, fretInBox]...]]
+// Fret offsets are relative to root note position on low E string
+// We compute boxes dynamically based on root note
 function getPentatonicBoxes(rootNote) {
+  // The 5 pentatonic box shapes (intervals from box start fret per string)
+  // Each box: { startFret, notes: [[stringIdx, fret]] }
   const rootFretLowE = (rootNote - TUNING[5] + 12) % 12;
 
+  // Classic CAGED-derived pentatonic boxes
+  // Defined as fret offsets from root on low E
   const boxDefs = [
     { offset: 0, shape: [[5,0],[5,3],[4,0],[4,2],[3,0],[3,2],[2,0],[2,2],[1,0],[1,3],[0,0],[0,3]] },
     { offset: 3, shape: [[5,0],[5,2],[4,0],[4,2],[3,0],[3,2],[2,0],[2,2],[1,0],[1,2],[0,0],[0,2]] },
@@ -122,6 +129,7 @@ export default function App() {
       const degreeIdx = scaleNotes.indexOf(noteIdx);
       if (degreeIdx === -1) return { active: false, noteName, noteIdx };
 
+      // Box mode: dim notes outside active box
       if (boxMode && currentBoxNotes && !currentBoxNotes.has(`${stringIdx}-${fret}`)) {
         return {
           active: true, noteName, noteIdx, dimmed: true,
@@ -171,6 +179,7 @@ export default function App() {
 
   const totalWidth = fretWidths.reduce((a, b) => a + b, 0);
 
+  // Compute box highlight zone
   const activeBoxData = boxMode && mode === "scales" ? pentatonicBoxes[activeBox - 1] : null;
   const boxHighlight = useMemo(() => {
     if (!activeBoxData) return null;
@@ -379,7 +388,7 @@ export default function App() {
                         {fret > 0 && (
                           <div style={{
                             position: "absolute", left: 0, right: 0, top: "50%",
-                            height: Math.max(1, 3 - stringIdx * 0.3),
+                            height: Math.max(1, 1 + stringIdx * 0.5),
                             background: "#ddd", transform: "translateY(-50%)"
                           }} />
                         )}
