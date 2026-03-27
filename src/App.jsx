@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const NOTE_LABELS = { "C#": "C#/Db", "D#": "D#/Eb", "F#": "F#/Gb", "G#": "G#/Ab", "A#": "A#/Bb" };
@@ -72,6 +72,52 @@ function getPentatonicBoxes(rootNote) {
   });
 }
 
+// Standard guitar tuning frequencies (E2, A2, D3, G3, B3, E4)
+const GUITAR_STRING_FREQS = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63];
+
+function autoCorrelate(buf, sampleRate) {
+  let rms = 0;
+  for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+  rms = Math.sqrt(rms / buf.length);
+  if (rms < 0.008) return -1;
+
+  let r1 = 0, r2 = buf.length - 1;
+  for (let i = 0; i < buf.length / 2; i++) {
+    if (Math.abs(buf[i]) < 0.2) { r1 = i; break; }
+  }
+  for (let i = 1; i < buf.length / 2; i++) {
+    if (Math.abs(buf[buf.length - i]) < 0.2) { r2 = buf.length - i; break; }
+  }
+  const trimmed = buf.slice(r1, r2);
+  const SIZE = trimmed.length;
+  const c = new Float32Array(SIZE).fill(0);
+  for (let i = 0; i < SIZE; i++)
+    for (let j = 0; j < SIZE - i; j++) c[i] += trimmed[j] * trimmed[j + i];
+
+  let d = 0;
+  while (d < SIZE && c[d] > c[d + 1]) d++;
+  let maxVal = -1, maxPos = -1;
+  for (let i = d; i < SIZE; i++) {
+    if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
+  }
+  if (maxPos <= 0 || maxPos >= SIZE - 1) return -1;
+  const x1 = c[maxPos - 1], x2 = c[maxPos], x3 = c[maxPos + 1];
+  const a = (x1 + x3 - 2 * x2) / 2;
+  const b = (x3 - x1) / 2;
+  const peak = a ? maxPos - b / (2 * a) : maxPos;
+  return sampleRate / peak;
+}
+
+function freqToNoteInfo(freq) {
+  if (freq <= 0) return null;
+  const noteNum = 12 * Math.log2(freq / 440) + 69;
+  const rounded = Math.round(noteNum);
+  const cents = Math.round((noteNum - rounded) * 100);
+  const noteIdx = ((rounded % 12) + 12) % 12;
+  const octave = Math.floor(rounded / 12) - 1;
+  return { noteIdx, noteName: NOTES[noteIdx], octave, cents, freq };
+}
+
 function getNoteAt(stringIdx, fret) {
   return (TUNING[stringIdx] + fret) % 12;
 }
@@ -98,6 +144,55 @@ export default function App() {
   const [hoveredFret, setHoveredFret] = useState(null);
   const [boxMode, setBoxMode] = useState(false);
   const [activeBox, setActiveBox] = useState(1);
+
+  // Tuner state
+  const [tunerActive, setTunerActive] = useState(false);
+  const [tunerNote, setTunerNote] = useState(null);
+  const [tunerError, setTunerError] = useState(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const streamRef = useRef(null);
+  const rafRef = useRef(null);
+
+  const stopTuner = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    if (audioCtxRef.current) audioCtxRef.current.close();
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+    streamRef.current = null;
+    rafRef.current = null;
+    setTunerActive(false);
+    setTunerNote(null);
+  }, []);
+
+  const startTuner = useCallback(async () => {
+    setTunerError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyserRef.current = analyser;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      setTunerActive(true);
+
+      const buf = new Float32Array(analyser.fftSize);
+      const tick = () => {
+        analyser.getFloatTimeDomainData(buf);
+        const freq = autoCorrelate(buf, ctx.sampleRate);
+        setTunerNote(freqToNoteInfo(freq));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (e) {
+      setTunerError("Mikrofon-Zugriff verweigert.");
+    }
+  }, []);
+
+  useEffect(() => () => stopTuner(), [stopTuner]);
 
   const scaleNotes = useMemo(() => {
     if (mode !== "scales") return [];
@@ -204,8 +299,9 @@ export default function App() {
             { id: "scales", label: "Skalen" },
             { id: "intervals", label: "Intervalle" },
             { id: "finder", label: "Ton-Finder" },
+            { id: "tuner", label: "Stimmgerät" },
           ].map(m => (
-            <button key={m.id} onClick={() => { setMode(m.id); setBoxMode(false); }} style={{
+            <button key={m.id} onClick={() => { setMode(m.id); setBoxMode(false); if (m.id !== "tuner") stopTuner(); }} style={{
               flex: 1, padding: "10px 0", border: "none", borderRadius: 8, cursor: "pointer",
               fontSize: 13, fontWeight: 700, transition: "all 0.2s", letterSpacing: "-0.2px",
               background: mode === m.id ? "#fff" : "transparent",
@@ -215,8 +311,94 @@ export default function App() {
           ))}
         </div>
 
+        {/* Tuner UI */}
+        {mode === "tuner" && (() => {
+          const cents = tunerNote?.cents ?? 0;
+          const inTune = tunerNote && Math.abs(cents) <= 5;
+          const meterColor = inTune ? "#2ecc71" : Math.abs(cents) <= 15 ? "#f39c12" : ACCENT;
+          const meterPct = Math.min(Math.max((cents + 50) / 100, 0), 1);
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Big display */}
+              <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #eee", padding: "28px 20px 22px", textAlign: "center" }}>
+                <div style={{ fontSize: 80, fontWeight: 800, lineHeight: 1, color: tunerNote ? meterColor : "#e0e0e0", transition: "color 0.15s", letterSpacing: "-4px", minHeight: 88 }}>
+                  {tunerNote ? tunerNote.noteName : "–"}
+                  {tunerNote && <span style={{ fontSize: 28, fontWeight: 600, color: "#aaa", letterSpacing: 0 }}>{tunerNote.octave}</span>}
+                </div>
+                <div style={{ fontSize: 13, color: "#bbb", marginTop: 6, fontWeight: 600 }}>
+                  {tunerNote ? `${tunerNote.freq.toFixed(1)} Hz` : "kein Signal"}
+                </div>
+
+                {/* Cents meter */}
+                <div style={{ marginTop: 20, position: "relative", height: 36 }}>
+                  <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 4, background: "#f0f0f0", borderRadius: 4, transform: "translateY(-50%)" }} />
+                  {/* center tick */}
+                  <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 2, background: "#e0e0e0", transform: "translateX(-50%)" }} />
+                  {/* needle */}
+                  {tunerNote && (
+                    <div style={{
+                      position: "absolute", top: "50%", width: 12, height: 12, borderRadius: "50%",
+                      background: meterColor, transform: "translate(-50%, -50%)",
+                      left: `${meterPct * 100}%`,
+                      transition: "left 0.1s, background 0.15s",
+                      boxShadow: `0 0 8px ${meterColor}88`,
+                    }} />
+                  )}
+                  <div style={{ position: "absolute", bottom: -18, left: 0, fontSize: 10, color: "#ccc", fontWeight: 700 }}>♭</div>
+                  <div style={{ position: "absolute", bottom: -18, right: 0, fontSize: 10, color: "#ccc", fontWeight: 700 }}>♯</div>
+                  <div style={{ position: "absolute", bottom: -18, left: "50%", transform: "translateX(-50%)", fontSize: 10, color: inTune ? "#2ecc71" : "#ccc", fontWeight: 700, transition: "color 0.15s" }}>
+                    {inTune ? "✓" : tunerNote ? `${cents > 0 ? "+" : ""}${cents}¢` : ""}
+                  </div>
+                </div>
+              </div>
+
+              {/* Guitar string reference */}
+              <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #eee", padding: "14px 16px" }}>
+                <div style={{ fontSize: 10, color: "#aaa", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Standard-Stimmung (EADGBe)</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {GUITAR_STRING_FREQS.map((targetFreq, i) => {
+                    // string order low→high: E A D G B e (indices 5→0 in STRING_NAMES)
+                    const sIdx = 5 - i;
+                    const targetNoteIdx = TUNING[sIdx];
+                    const isActive = tunerNote && tunerNote.noteIdx === targetNoteIdx;
+                    const isTuned = isActive && Math.abs(tunerNote.cents) <= 10;
+                    const bg = isTuned ? "#2ecc71" : isActive ? meterColor : "#f5f5f5";
+                    const color = isActive ? "#fff" : "#aaa";
+                    return (
+                      <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                        <div style={{
+                          width: "100%", aspectRatio: "1", borderRadius: 10, display: "flex",
+                          flexDirection: "column", alignItems: "center", justifyContent: "center",
+                          background: bg, transition: "background 0.15s",
+                          boxShadow: isActive ? `0 2px 10px ${bg}66` : "none",
+                        }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color }}>{STRING_NAMES[sIdx]}</div>
+                          <div style={{ fontSize: 9, fontWeight: 600, color: isActive ? "rgba(255,255,255,0.8)" : "#ccc" }}>{targetFreq} Hz</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Start/Stop button */}
+              <button onClick={tunerActive ? stopTuner : startTuner} style={{
+                padding: "14px 24px", border: "none", borderRadius: 12, cursor: "pointer",
+                fontSize: 15, fontWeight: 800, transition: "all 0.2s",
+                background: tunerActive ? "#f0f0f0" : ACCENT,
+                color: tunerActive ? "#999" : "#fff",
+                boxShadow: tunerActive ? "none" : `0 4px 16px ${ACCENT}44`,
+              }}>
+                {tunerActive ? "Mikrofon stoppen" : "Mikrofon starten"}
+              </button>
+              {tunerError && <div style={{ color: ACCENT, fontSize: 13, textAlign: "center", fontWeight: 600 }}>{tunerError}</div>}
+            </div>
+          );
+        })()}
+
         {/* Controls */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+        {mode !== "tuner" && <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
           {mode !== "finder" && (
             <div style={{ flex: "1 1 140px" }}>
               <label style={labelStyle}>Grundton</label>
@@ -266,7 +448,7 @@ export default function App() {
               </select>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Box selector */}
         {boxMode && mode === "scales" && (
@@ -290,6 +472,7 @@ export default function App() {
           </div>
         )}
 
+        {mode !== "tuner" && <>
         {/* Info Bar */}
         <div style={{ background: "#fff", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, fontWeight: 500, border: "1px solid #eee" }}>
           {mode === "scales" && (
@@ -497,6 +680,7 @@ export default function App() {
             </div>
           </div>
         )}
+        </>}
       </div>
     </div>
   );
