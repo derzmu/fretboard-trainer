@@ -157,11 +157,11 @@ function autoCorrelate(buf, sampleRate) {
   let rms = 0;
   for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
   rms = Math.sqrt(rms / buf.length);
-  if (rms < 0.01) return -1;
+  if (rms < 0.005) return -1;
 
   let r1 = 0, r2 = buf.length - 1;
-  for (let i = 0; i < buf.length / 2; i++) { if (Math.abs(buf[i]) < 0.2) { r1 = i; break; } }
-  for (let i = 1; i < buf.length / 2; i++) { if (Math.abs(buf[buf.length-i]) < 0.2) { r2 = buf.length-i; break; } }
+  for (let i = 0; i < buf.length / 2; i++) { if (Math.abs(buf[i]) < 0.1) { r1 = i; break; } }
+  for (let i = 1; i < buf.length / 2; i++) { if (Math.abs(buf[buf.length-i]) < 0.1) { r2 = buf.length-i; break; } }
 
   const t = buf.slice(r1, r2);
   const SIZE = t.length;
@@ -227,7 +227,7 @@ export default function App() {
   const analyserRef   = useRef(null);
   const streamRef     = useRef(null);
   const rafRef        = useRef(null);
-  const smoothFreqRef = useRef(0);
+  const freqHistoryRef = useRef([]);
   const stableRef     = useRef({ key: null, count: 0 });
   const silenceRef    = useRef(0);
 
@@ -236,7 +236,7 @@ export default function App() {
     if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     if (audioCtxRef.current) audioCtxRef.current.close();
     audioCtxRef.current = analyserRef.current = streamRef.current = rafRef.current = null;
-    smoothFreqRef.current = 0;
+    freqHistoryRef.current = [];
     stableRef.current = { key: null, count: 0 };
     silenceRef.current = 0;
     setTunerActive(false);
@@ -246,14 +246,19 @@ export default function App() {
   const startTuner = useCallback(async () => {
     setTunerError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+      });
       streamRef.current = stream;
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtxRef.current = ctx;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 4096;
       analyserRef.current = analyser;
-      ctx.createMediaStreamSource(stream).connect(analyser);
+      const gain = ctx.createGain();
+      gain.gain.value = 2;
+      ctx.createMediaStreamSource(stream).connect(gain);
+      gain.connect(analyser);
       setTunerActive(true);
 
       const buf = new Float32Array(analyser.fftSize);
@@ -271,17 +276,20 @@ export default function App() {
           silenceRef.current++;
           if (silenceRef.current > 8) {
             setTunerNote(null);
-            smoothFreqRef.current = 0;
+            freqHistoryRef.current = [];
             stableRef.current = { key: null, count: 0 };
           }
           return;
         }
         silenceRef.current = 0;
-        smoothFreqRef.current = smoothFreqRef.current > 0
-          ? 0.15 * raw + 0.85 * smoothFreqRef.current
-          : raw;
 
-        const info = freqToNoteInfo(smoothFreqRef.current);
+        const hist = freqHistoryRef.current;
+        hist.push(raw);
+        if (hist.length > 8) hist.shift();
+        const sorted = [...hist].sort((a, b) => a - b);
+        const smoothed = sorted[Math.floor(sorted.length / 2)];
+
+        const info = freqToNoteInfo(smoothed);
         if (!info) return;
 
         const key = info.noteName + info.octave;
@@ -290,7 +298,7 @@ export default function App() {
         } else {
           stableRef.current = { key, count: 1 };
         }
-        if (stableRef.current.count >= 2) setTunerNote(info);
+        if (stableRef.current.count >= 3) setTunerNote(info);
       };
       rafRef.current = requestAnimationFrame(tick);
     } catch {
