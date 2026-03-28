@@ -10,12 +10,19 @@ const FRET_COUNT = 15;
 const DOT_FRETS = [3, 5, 7, 9, 12, 15];
 const DOUBLE_DOT = [12];
 
-const ACCENT = "#ff2b49";
-const ACCENT_SOFT = "#ff2b4922";
-const DEGREE_COLORS = ["#ff2b49","#e67e22","#d4a017","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00bcd4","#8bc34a","#ff5722","#607d8b"];
-const INTERVAL_COLORS = { 3:"#e74c3c", 4:"#e67e22", 5:"#d4a017", 7:"#2ecc71", 10:"#3498db", 11:"#9b59b6", 12:"#1abc9c" };
+// Portfolio palette: warm cream, terracotta accent
+const ACCENT      = "#c4401a";
+const ACCENT_SOFT = "#c4401a18";
+const BG          = "#f5f2ed";
+const CARD        = "#fff";
+const RULE        = "#d4d0ca";
+const FG          = "#1a1a18";
+const MUTED       = "#9e9a93";
+
+const DEGREE_COLORS = ["#c4401a","#e67e22","#b8920a","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00bcd4","#8bc34a","#ff5722","#607d8b"];
+const INTERVAL_COLORS = { 3:"#e74c3c", 4:"#e67e22", 5:"#b8920a", 7:"#2ecc71", 10:"#3498db", 11:"#9b59b6", 12:"#1abc9c" };
 // Root, 3rd, 5th
-const CHORD_COLORS = ["#ff2b49", "#e67e22", "#2ecc71"];
+const CHORD_COLORS = ["#c4401a", "#e67e22", "#2ecc71"];
 
 const SCALES = {
   "Dur (Ionisch)":       [0,2,4,5,7,9,11],
@@ -50,91 +57,78 @@ const TRIAD_TYPES = {
 };
 
 const TRIAD_INVERSIONS = ["Grundst.", "1. Umk.", "2. Umk."];
-// Each group = [lowString, midString, highString]
 const TRIAD_GROUPS = [[2,1,0], [3,2,1], [4,3,2], [5,4,3]];
 const TRIAD_GROUP_LABELS = ["G–B–e", "D–G–B", "A–D–G", "E–A–D"];
 
-// Guitar string reference frequencies (E2 A2 D3 G3 B3 E4), index 0 = low E
 const GUITAR_STRING_FREQS = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getNoteAt(s, f) { return (TUNING[s] + f) % 12; }
 function displayName(i) { const n = NOTES[i]; return NOTE_LABELS[n] || n; }
-// Shift negative frets up one octave
 function normF(f) { return f < 0 ? f + 12 : f; }
 
 // ─── CAGED Shapes ─────────────────────────────────────────────────────────────
-// Each shape returns [{s, f, d}] where d: 0=root, 1=M3, 2=P5
-// Verified against open chord shapes; || 12 forces closed (barre) position for A/G/C shapes
 
 const CAGED_SHAPES = {
-  // Open E shape (barre at fret 0 for E major, slide up for other roots)
   E: (root) => {
     const f = ((root - TUNING[5]) % 12 + 12) % 12;
     return [
-      { s:5, f: f,   d:0 },  // root on low E
-      { s:4, f: f+2, d:2 },  // P5 on A
-      { s:3, f: f+2, d:0 },  // root on D
-      { s:2, f: f+1, d:1 },  // M3 on G
-      { s:1, f: f,   d:2 },  // P5 on B
-      { s:0, f: f,   d:0 },  // root on e
+      { s:5, f: f,   d:0 },
+      { s:4, f: f+2, d:2 },
+      { s:3, f: f+2, d:0 },
+      { s:2, f: f+1, d:1 },
+      { s:1, f: f,   d:2 },
+      { s:0, f: f,   d:0 },
     ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
   },
-  // Open A shape (barre chord, root on A string)
   A: (root) => {
     const f = ((root - TUNING[4]) % 12 + 12) % 12 || 12;
     return [
-      { s:4, f: f,   d:0 },  // root on A
-      { s:3, f: f+2, d:2 },  // P5 on D
-      { s:2, f: f+2, d:0 },  // root on G
-      { s:1, f: f+2, d:1 },  // M3 on B
-      { s:0, f: f,   d:2 },  // P5 on e (same fret as A root)
+      { s:4, f: f,   d:0 },
+      { s:3, f: f+2, d:2 },
+      { s:2, f: f+2, d:0 },
+      { s:1, f: f+2, d:1 },
+      { s:0, f: f,   d:2 },
     ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
   },
-  // Open G shape (root on both E strings)
   G: (root) => {
     const f = ((root - TUNING[5]) % 12 + 12) % 12 || 12;
     return [
-      { s:5, f: f,           d:0 },  // root on low E
-      { s:4, f: normF(f-1),  d:1 },  // M3 on A
-      { s:3, f: normF(f-3),  d:2 },  // P5 on D
-      { s:2, f: normF(f-3),  d:0 },  // root on G
-      { s:1, f: normF(f-3),  d:1 },  // M3 on B
-      { s:0, f: f,           d:0 },  // root on high e
+      { s:5, f: f,           d:0 },
+      { s:4, f: normF(f-1),  d:1 },
+      { s:3, f: normF(f-3),  d:2 },
+      { s:2, f: normF(f-3),  d:0 },
+      { s:1, f: normF(f-3),  d:1 },
+      { s:0, f: f,           d:0 },
     ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
   },
-  // Open C shape (root on A string, muted low E)
   C: (root) => {
     const f = ((root - TUNING[4]) % 12 + 12) % 12 || 12;
     return [
-      { s:4, f: f,           d:0 },  // root on A
-      { s:3, f: normF(f-1),  d:1 },  // M3 on D
-      { s:2, f: normF(f-3),  d:2 },  // P5 on G
-      { s:1, f: normF(f-2),  d:0 },  // root on B
-      { s:0, f: normF(f-3),  d:1 },  // M3 on e
+      { s:4, f: f,           d:0 },
+      { s:3, f: normF(f-1),  d:1 },
+      { s:2, f: normF(f-3),  d:2 },
+      { s:1, f: normF(f-2),  d:0 },
+      { s:0, f: normF(f-3),  d:1 },
     ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
   },
-  // Open D shape (root on D string, mutes low strings)
   D: (root) => {
     const f = ((root - TUNING[3]) % 12 + 12) % 12;
     return [
-      { s:3, f: f,   d:0 },  // root on D
-      { s:2, f: f+2, d:2 },  // P5 on G
-      { s:1, f: f+3, d:0 },  // root on B
-      { s:0, f: f+2, d:1 },  // M3 on e
+      { s:3, f: f,   d:0 },
+      { s:2, f: f+2, d:2 },
+      { s:1, f: f+3, d:0 },
+      { s:0, f: f+2, d:1 },
     ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
   },
 };
 
 // ─── Triad voicing ────────────────────────────────────────────────────────────
-// Finds the lowest close-position (span ≤ 4 frets) voicing for a given
-// inversion on a 3-string group.
 
 function getTriadVoicing(rootNote, intervals, inversion, groupIdx) {
   const group = TRIAD_GROUPS[groupIdx];
   const pool = intervals.map(i => (rootNote + i) % 12);
-  // inversion sets the degree order [low, mid, high]
   const degOrder = [[0,1,2],[1,2,0],[2,0,1]][inversion];
   const target = degOrder.map(d => pool[d]);
 
@@ -198,53 +192,44 @@ function freqToNoteInfo(freq) {
   };
 }
 
-// ─── Font ─────────────────────────────────────────────────────────────────────
+// ─── Fonts ────────────────────────────────────────────────────────────────────
 
 const fontLink = document.createElement("link");
-fontLink.href = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap";
+fontLink.href = "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Mono:wght@300;400&display=swap";
 fontLink.rel = "stylesheet";
 document.head.appendChild(fontLink);
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  // Navigation
   const [mode, setMode] = useState("scales");
   const [tunerOpen, setTunerOpen] = useState(false);
 
-  // Shared
-  const [rootNote, setRootNote]     = useState(0);
+  const [rootNote, setRootNote]       = useState(0);
   const [hoveredFret, setHoveredFret] = useState(null);
 
-  // Scales
-  const [selectedScale, setSelectedScale] = useState("Moll-Pentatonik");
-  const [highlightRoot, setHighlightRoot] = useState(true);
+  const [selectedScale, setSelectedScale]   = useState("Moll-Pentatonik");
+  const [highlightRoot, setHighlightRoot]   = useState(true);
 
-  // CAGED
   const [cagedShape, setCagedShape] = useState("E");
 
-  // Triads
   const [triadType, setTriadType]           = useState("Dur");
   const [triadInversion, setTriadInversion] = useState(0);
   const [triadGroup, setTriadGroup]         = useState(0);
 
-  // Intervals
   const [selectedInterval, setSelectedInterval] = useState("Reine Quinte (P5)");
+  const [finderNote, setFinderNote]             = useState(0);
 
-  // Finder
-  const [finderNote, setFinderNote] = useState(0);
-
-  // Tuner
-  const [tunerActive, setTunerActive]   = useState(false);
-  const [tunerNote, setTunerNote]       = useState(null);
-  const [tunerError, setTunerError]     = useState(null);
-  const audioCtxRef    = useRef(null);
-  const analyserRef    = useRef(null);
-  const streamRef      = useRef(null);
-  const rafRef         = useRef(null);
-  const smoothFreqRef  = useRef(0);
-  const stableRef      = useRef({ key: null, count: 0 });
-  const silenceRef     = useRef(0);
+  const [tunerActive, setTunerActive] = useState(false);
+  const [tunerNote, setTunerNote]     = useState(null);
+  const [tunerError, setTunerError]   = useState(null);
+  const audioCtxRef   = useRef(null);
+  const analyserRef   = useRef(null);
+  const streamRef     = useRef(null);
+  const rafRef        = useRef(null);
+  const smoothFreqRef = useRef(0);
+  const stableRef     = useRef({ key: null, count: 0 });
+  const silenceRef    = useRef(0);
 
   const stopTuner = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -276,7 +261,7 @@ export default function App() {
 
       const tick = (ts) => {
         rafRef.current = requestAnimationFrame(tick);
-        if (ts - lastTs < 70) return; // ~14 fps display
+        if (ts - lastTs < 70) return;
         lastTs = ts;
 
         analyser.getFloatTimeDomainData(buf);
@@ -292,8 +277,6 @@ export default function App() {
           return;
         }
         silenceRef.current = 0;
-
-        // Heavy exponential smoothing (α=0.15)
         smoothFreqRef.current = smoothFreqRef.current > 0
           ? 0.15 * raw + 0.85 * smoothFreqRef.current
           : raw;
@@ -301,7 +284,6 @@ export default function App() {
         const info = freqToNoteInfo(smoothFreqRef.current);
         if (!info) return;
 
-        // Require 2 consecutive readings of same note before updating display
         const key = info.noteName + info.octave;
         if (stableRef.current.key === key) {
           stableRef.current.count++;
@@ -331,11 +313,7 @@ export default function App() {
     const notes = CAGED_SHAPES[cagedShape](rootNote);
     const map = new Map(notes.map(n => [`${n.s}-${n.f}`, n.d]));
     const frets = notes.map(n => n.f).filter(f => f > 0);
-    return {
-      map,
-      minFret: frets.length ? Math.min(...frets) : 0,
-      maxFret: frets.length ? Math.max(...frets) : 0,
-    };
+    return { map, minFret: frets.length ? Math.min(...frets) : 0, maxFret: frets.length ? Math.max(...frets) : 0 };
   }, [mode, rootNote, cagedShape]);
 
   const triadIntervals = TRIAD_TYPES[triadType];
@@ -363,7 +341,7 @@ export default function App() {
         active: true, noteName,
         color:  isRoot && highlightRoot ? "#fff" : DEGREE_COLORS[deg],
         bg:     isRoot && highlightRoot ? ACCENT : `${DEGREE_COLORS[deg]}18`,
-        border: isRoot && highlightRoot ? "#d9203c" : DEGREE_COLORS[deg],
+        border: isRoot && highlightRoot ? "#a33515" : DEGREE_COLORS[deg],
         isRoot, degree: deg + 1,
       };
     }
@@ -377,7 +355,7 @@ export default function App() {
         active: true, noteName,
         color:  isRoot ? "#fff" : col,
         bg:     isRoot ? ACCENT : `${col}22`,
-        border: isRoot ? "#d9203c" : col,
+        border: isRoot ? "#a33515" : col,
         isRoot, label: ["R","3","5"][d],
       };
     }
@@ -412,13 +390,11 @@ export default function App() {
 
     if (mode === "finder") {
       if (noteIdx !== finderNote) return { active: false, noteName };
-      return { active: true, noteName, color: "#fff", bg: ACCENT, border: "#d9203c", isRoot: false };
+      return { active: true, noteName, color: "#fff", bg: ACCENT, border: "#a33515", isRoot: false };
     }
 
     return { active: false, noteName };
   }, [mode, scaleNotes, rootNote, highlightRoot, cagedData, triadIntervals, voicingKeys, intervalSemitones, selectedInterval, finderNote]);
-
-  // ─── Fret geometry ────────────────────────────────────────────────────────
 
   const fretWidths = useMemo(() => {
     const w = [];
@@ -438,30 +414,32 @@ export default function App() {
   ];
 
   return (
-    <div style={{ fontFamily:"'Manrope',-apple-system,sans-serif", background:"#fafafa", color:"#1a1a1a", minHeight:"100vh", padding:"16px", boxSizing:"border-box" }}>
+    <div style={{ fontFamily:"'DM Mono','Menlo',monospace", fontWeight:300, background:BG, color:FG, minHeight:"100vh", padding:"16px", boxSizing:"border-box", WebkitFontSmoothing:"antialiased" }}>
       <div style={{ maxWidth:960, margin:"0 auto" }}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
-          <div>
-            <h1 style={{ fontSize:20, fontWeight:800, margin:0, color:"#111", letterSpacing:"-0.5px" }}>Griffbrett-Trainer</h1>
-          </div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+          <h1 style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(1.6rem,4vw,2.2rem)", margin:0, color:FG, letterSpacing:"-0.02em", lineHeight:1.05 }}>
+            Griffbrett-Trainer
+          </h1>
           <button
             onClick={() => { setTunerOpen(o => { if (o) stopTuner(); return !o; }); }}
             style={{
-              padding:"8px 14px", border:"1px solid", borderRadius:9, cursor:"pointer",
-              fontSize:12, fontWeight:700, letterSpacing:"0.3px", transition:"all 0.2s",
-              background: tunerOpen ? ACCENT : "#fff",
-              borderColor: tunerOpen ? ACCENT : "#e0e0e0",
-              color: tunerOpen ? "#fff" : "#999",
-              boxShadow: tunerOpen ? `0 2px 10px ${ACCENT}44` : "none",
+              padding:"7px 14px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+              fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+              letterSpacing:"0.08em", textTransform:"uppercase", transition:"all 0.2s",
+              background: tunerOpen ? FG : "transparent",
+              borderColor: tunerOpen ? FG : RULE,
+              color: tunerOpen ? BG : MUTED,
             }}
           >
-            {tunerActive ? "● LIVE" : "Stimmgerät"}
+            {tunerActive ? "● Live" : "Stimmgerät"}
           </button>
         </div>
 
-        {/* ── Tuner panel ────────────────────────────────────────────────── */}
+        <div style={{ borderTop:`1px solid ${RULE}`, marginBottom:20 }} />
+
+        {/* ── Tuner ──────────────────────────────────────────────────────── */}
         {tunerOpen && (
           <TunerPanel
             tunerActive={tunerActive} tunerNote={tunerNote} tunerError={tunerError}
@@ -473,22 +451,21 @@ export default function App() {
         {!tunerOpen && (<>
 
           {/* Tab bar */}
-          <div style={{ display:"flex", gap:3, marginBottom:14, background:"#f0f0f0", borderRadius:10, padding:3 }}>
+          <div style={{ display:"flex", gap:0, marginBottom:16, borderBottom:`1px solid ${RULE}` }}>
             {TABS.map(t => (
               <button key={t.id} onClick={() => setMode(t.id)} style={{
-                flex:1, padding:"9px 0", border:"none", borderRadius:8, cursor:"pointer",
-                fontSize:12, fontWeight:700, transition:"all 0.15s",
-                background: mode === t.id ? "#fff" : "transparent",
-                color:      mode === t.id ? ACCENT : "#999",
-                boxShadow:  mode === t.id ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                flex:1, padding:"8px 0 10px", border:"none", borderBottom: mode===t.id ? `1px solid ${FG}` : "1px solid transparent",
+                marginBottom:"-1px", background:"transparent", cursor:"pointer",
+                fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+                letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.15s",
+                color: mode===t.id ? FG : MUTED,
               }}>{t.label}</button>
             ))}
           </div>
 
           {/* Controls */}
-          <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap", alignItems:"flex-end" }}>
+          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"flex-end" }}>
 
-            {/* Root note – shown for all modes except finder */}
             {mode !== "finder" && (
               <div style={{ flex:"1 1 110px" }}>
                 <label style={labelStyle}>Grundton</label>
@@ -513,12 +490,12 @@ export default function App() {
                 <div style={{ display:"flex", gap:4 }}>
                   {["C","A","G","E","D"].map(sh => (
                     <button key={sh} onClick={() => setCagedShape(sh)} style={{
-                      width:38, height:38, border:"1px solid", borderRadius:8, cursor:"pointer",
-                      fontSize:14, fontWeight:800, transition:"all 0.15s",
-                      background:   cagedShape === sh ? ACCENT : "#fff",
-                      borderColor:  cagedShape === sh ? ACCENT : "#e0e0e0",
-                      color:        cagedShape === sh ? "#fff" : "#aaa",
-                      boxShadow:    cagedShape === sh ? `0 2px 8px ${ACCENT}33` : "none",
+                      width:36, height:36, border:`1px solid`, borderRadius:2, cursor:"pointer",
+                      fontSize:"0.8125rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+                      transition:"all 0.15s",
+                      background:  cagedShape===sh ? FG : "transparent",
+                      borderColor: cagedShape===sh ? FG : RULE,
+                      color:       cagedShape===sh ? BG : MUTED,
                     }}>{sh}</button>
                   ))}
                 </div>
@@ -537,11 +514,12 @@ export default function App() {
                 <div style={{ display:"flex", gap:3 }}>
                   {TRIAD_INVERSIONS.map((lbl, i) => (
                     <button key={i} onClick={() => setTriadInversion(i)} style={{
-                      padding:"8px 10px", border:"1px solid", borderRadius:8, cursor:"pointer",
-                      fontSize:11, fontWeight:700, whiteSpace:"nowrap", transition:"all 0.15s",
-                      background:  triadInversion === i ? ACCENT : "#fff",
-                      borderColor: triadInversion === i ? ACCENT : "#e0e0e0",
-                      color:       triadInversion === i ? "#fff" : "#aaa",
+                      padding:"7px 10px", border:`1px solid`, borderRadius:2, cursor:"pointer",
+                      fontSize:"0.625rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+                      letterSpacing:"0.06em", textTransform:"uppercase", whiteSpace:"nowrap", transition:"all 0.15s",
+                      background:  triadInversion===i ? FG : "transparent",
+                      borderColor: triadInversion===i ? FG : RULE,
+                      color:       triadInversion===i ? BG : MUTED,
                     }}>{lbl}</button>
                   ))}
                 </div>
@@ -551,11 +529,12 @@ export default function App() {
                 <div style={{ display:"flex", gap:3 }}>
                   {TRIAD_GROUP_LABELS.map((lbl, i) => (
                     <button key={i} onClick={() => setTriadGroup(i)} style={{
-                      padding:"8px 10px", border:"1px solid", borderRadius:8, cursor:"pointer",
-                      fontSize:11, fontWeight:700, transition:"all 0.15s",
-                      background:  triadGroup === i ? "#1a1a1a" : "#fff",
-                      borderColor: triadGroup === i ? "#1a1a1a" : "#e0e0e0",
-                      color:       triadGroup === i ? "#fff" : "#aaa",
+                      padding:"7px 10px", border:`1px solid`, borderRadius:2, cursor:"pointer",
+                      fontSize:"0.625rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+                      letterSpacing:"0.06em", textTransform:"uppercase", whiteSpace:"nowrap", transition:"all 0.15s",
+                      background:  triadGroup===i ? ACCENT : "transparent",
+                      borderColor: triadGroup===i ? ACCENT : RULE,
+                      color:       triadGroup===i ? "#fff" : MUTED,
                     }}>{lbl}</button>
                   ))}
                 </div>
@@ -582,40 +561,40 @@ export default function App() {
           </div>
 
           {/* Info strip */}
-          <div style={{ background:"#fff", borderRadius:9, padding:"8px 14px", marginBottom:10, fontSize:12, fontWeight:500, border:"1px solid #eee", minHeight:34, display:"flex", alignItems:"center" }}>
+          <div style={{ borderTop:`1px solid ${RULE}`, borderBottom:`1px solid ${RULE}`, padding:"8px 0", marginBottom:12, fontSize:"0.75rem", minHeight:32, display:"flex", alignItems:"center" }}>
             {mode === "scales" && <span>
-              <strong style={{ color:ACCENT }}>{displayName(rootNote)} {selectedScale}</strong>
-              <span style={{ color:"#ddd", margin:"0 8px" }}>|</span>
-              <span style={{ color:"#aaa" }}>{SCALES[selectedScale].map(i => displayName((rootNote+i)%12)).join(" – ")}</span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)} {selectedScale}</span>
+              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
+              <span style={{ color:MUTED, letterSpacing:"0.03em" }}>{SCALES[selectedScale].map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
             </span>}
 
             {mode === "caged" && <span>
-              <strong style={{ color:ACCENT }}>{displayName(rootNote)} · {cagedShape}-Form</strong>
-              {cagedData && <span style={{ color:"#ccc" }}> Bund {cagedData.minFret}–{cagedData.maxFret}</span>}
-              <span style={{ color:"#ddd", margin:"0 8px" }}>|</span>
-              <span style={{ color:"#aaa" }}>{[0,4,7].map(i => displayName((rootNote+i)%12)).join(" – ")}</span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)}</span>
+              <span style={{ color:MUTED }}> · {cagedShape}-Form</span>
+              {cagedData && <span style={{ color:RULE }}> · Bund {cagedData.minFret}–{cagedData.maxFret}</span>}
+              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
+              <span style={{ color:MUTED }}>{[0,4,7].map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
             </span>}
 
             {mode === "triads" && <span>
-              <strong style={{ color:ACCENT }}>{displayName(rootNote)} {triadType}</strong>
-              <span style={{ color:"#ddd", margin:"0 6px" }}>·</span>
-              <span style={{ color:ACCENT, fontWeight:700 }}>{TRIAD_INVERSIONS[triadInversion]}</span>
-              <span style={{ color:"#ddd", margin:"0 8px" }}>|</span>
-              <span style={{ color:"#aaa" }}>{triadIntervals.map(i => displayName((rootNote+i)%12)).join(" – ")}</span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)} {triadType}</span>
+              <span style={{ color:MUTED }}> · {TRIAD_INVERSIONS[triadInversion]}</span>
+              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
+              <span style={{ color:MUTED }}>{triadIntervals.map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
             </span>}
 
             {mode === "intervals" && <span>
-              <strong style={{ color:ACCENT }}>{displayName(rootNote)}</strong>
-              <span style={{ margin:"0 8px", color:"#ddd" }}>→</span>
-              <strong style={{ color:INTERVAL_COLORS[intervalSemitones] }}>{displayName((rootNote+intervalSemitones)%12)}</strong>
-              <span style={{ color:"#ddd", margin:"0 8px" }}>|</span>
-              <span style={{ color:"#aaa" }}>{selectedInterval}</span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)}</span>
+              <span style={{ color:MUTED, margin:"0 8px" }}>→</span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:INTERVAL_COLORS[intervalSemitones] }}>{displayName((rootNote+intervalSemitones)%12)}</span>
+              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
+              <span style={{ color:MUTED }}>{selectedInterval}</span>
             </span>}
 
             {mode === "finder" && <span>
-              <span style={{ color:"#aaa" }}>Alle </span>
-              <strong style={{ color:ACCENT }}>{displayName(finderNote)}</strong>
-              <span style={{ color:"#aaa" }}> auf dem Griffbrett</span>
+              <span style={{ color:MUTED }}>Alle </span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(finderNote)}</span>
+              <span style={{ color:MUTED }}> auf dem Griffbrett</span>
             </span>}
           </div>
 
@@ -626,23 +605,23 @@ export default function App() {
               {/* Fret numbers */}
               <div style={{ display:"flex", marginLeft:30, marginBottom:4 }}>
                 {fretWidths.map((w, f) => (
-                  <div key={f} style={{ width:w, textAlign:"center", fontSize:10, color:"#bbb", flexShrink:0, fontWeight:600 }}>
+                  <div key={f} style={{ width:w, textAlign:"center", fontSize:"0.5625rem", color:"#b5b1aa", flexShrink:0, fontWeight:400, letterSpacing:"0.05em" }}>
                     {f === 0 ? "" : f}
                   </div>
                 ))}
               </div>
 
               {/* Board */}
-              <div style={{ background:"#fff", borderRadius:12, padding:"10px 0", position:"relative", border:"1px solid #e8e8e8", boxShadow:"0 2px 12px rgba(0,0,0,0.04)", overflow:"hidden" }}>
+              <div style={{ background:CARD, borderRadius:3, padding:"10px 0", position:"relative", border:`1px solid ${RULE}`, overflow:"hidden" }}>
 
                 {/* Dot markers */}
                 <div style={{ display:"flex", position:"absolute", top:0, bottom:0, left:30, pointerEvents:"none" }}>
                   {fretWidths.map((w, f) => (
                     <div key={f} style={{ width:w, flexShrink:0, position:"relative" }}>
                       {DOT_FRETS.includes(f) && (DOUBLE_DOT.includes(f) ? <>
-                        <div style={{ position:"absolute", left:"50%", top:"25%", transform:"translate(-50%,-50%)", width:6, height:6, borderRadius:"50%", background:"#e8e8e8" }} />
-                        <div style={{ position:"absolute", left:"50%", top:"75%", transform:"translate(-50%,-50%)", width:6, height:6, borderRadius:"50%", background:"#e8e8e8" }} />
-                      </> : <div style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)", width:6, height:6, borderRadius:"50%", background:"#e8e8e8" }} />)}
+                        <div style={{ position:"absolute", left:"50%", top:"25%", transform:"translate(-50%,-50%)", width:5, height:5, borderRadius:"50%", background:RULE }} />
+                        <div style={{ position:"absolute", left:"50%", top:"75%", transform:"translate(-50%,-50%)", width:5, height:5, borderRadius:"50%", background:RULE }} />
+                      </> : <div style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)", width:5, height:5, borderRadius:"50%", background:RULE }} />)}
                     </div>
                   ))}
                 </div>
@@ -650,46 +629,48 @@ export default function App() {
                 {/* Strings */}
                 {TUNING.map((_, s) => (
                   <div key={s} style={{ display:"flex", alignItems:"center", height:36 }}>
-                    <div style={{ width:30, textAlign:"center", fontSize:11, fontWeight:700, color:"#bbb", flexShrink:0, zIndex:3 }}>
+                    <div style={{ width:30, textAlign:"center", fontSize:"0.625rem", fontWeight:400, color:"#b5b1aa", flexShrink:0, zIndex:3, letterSpacing:"0.05em" }}>
                       {STRING_NAMES[s]}
                     </div>
                     {fretWidths.map((w, f) => {
                       const cell = getCellInfo(s, f);
-                      const isHov = hoveredFret?.s === s && hoveredFret?.f === f;
+                      const isHov = hoveredFret?.s===s && hoveredFret?.f===f;
                       return (
                         <div key={f}
                           style={{
                             width:w, height:36, flexShrink:0, position:"relative",
-                            borderRight: f===0 ? "3px solid #ccc" : "1px solid #f0f0f0",
-                            background:  f===0 ? "#fafafa" : "transparent",
+                            borderRight: f===0 ? `2px solid #c8c4be` : `1px solid #ece9e3`,
+                            background:  f===0 ? "#f9f6f1" : "transparent",
                             display:"flex", alignItems:"center", justifyContent:"center",
                           }}
                           onMouseEnter={() => setHoveredFret({s,f})}
                           onMouseLeave={() => setHoveredFret(null)}
                         >
                           {f > 0 && (
-                            <div style={{ position:"absolute", left:0, right:0, top:"50%", height:Math.max(1,1+s*0.5), background:"#ddd", transform:"translateY(-50%)" }} />
+                            <div style={{ position:"absolute", left:0, right:0, top:"50%", height:Math.max(1,1+s*0.4), background:"#ccc9c2", transform:"translateY(-50%)" }} />
                           )}
                           {cell.active ? (
                             <div style={{
-                              width:  cell.dimmed ? 20 : 26,
-                              height: cell.dimmed ? 20 : 26,
+                              width:  cell.dimmed ? 19 : 25,
+                              height: cell.dimmed ? 19 : 25,
                               borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-                              background: cell.bg, border:`2px solid ${cell.border}`,
-                              color: cell.color, fontSize: cell.dimmed ? 8 : 10, fontWeight:700,
+                              background: cell.bg, border:`1.5px solid ${cell.border}`,
+                              color: cell.color, fontSize: cell.dimmed ? 8 : "0.5625rem", fontWeight:400,
+                              fontFamily:"'DM Mono','Menlo',monospace",
                               zIndex:2, position:"relative",
-                              opacity: cell.dimmed ? 0.4 : 1,
-                              boxShadow: cell.isRoot ? `0 0 10px ${ACCENT}44` : cell.dimmed ? "none" : "0 1px 3px rgba(0,0,0,0.06)",
-                              transform: isHov && !cell.dimmed ? "scale(1.2)" : "scale(1)",
-                              transition:"transform 0.15s",
+                              opacity: cell.dimmed ? 0.35 : 1,
+                              boxShadow: cell.isRoot ? `0 0 8px ${ACCENT}44` : "none",
+                              transform: isHov && !cell.dimmed ? "scale(1.15)" : "scale(1)",
+                              transition:"transform 0.12s",
                             }}>
                               {cell.dimmed ? "" : (cell.label || cell.noteName)}
                             </div>
                           ) : isHov && f > 0 ? (
                             <div style={{
-                              width:22, height:22, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-                              background:"rgba(0,0,0,0.03)", border:"1px solid rgba(0,0,0,0.06)",
-                              color:"#ccc", fontSize:9, fontWeight:600, zIndex:2, position:"relative",
+                              width:20, height:20, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
+                              border:`1px solid ${RULE}`, color:"#c4c0ba",
+                              fontSize:"0.5rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+                              zIndex:2, position:"relative",
                             }}>
                               {NOTES[getNoteAt(s,f)]}
                             </div>
@@ -704,13 +685,13 @@ export default function App() {
               {/* ── Legends ──────────────────────────────────────────────── */}
 
               {mode === "scales" && (
-                <div style={{ display:"flex", gap:5, marginTop:10, flexWrap:"wrap", justifyContent:"center" }}>
+                <div style={{ display:"flex", gap:4, marginTop:10, flexWrap:"wrap", justifyContent:"center" }}>
                   {SCALES[selectedScale].map((interval, idx) => {
                     const ni = (rootNote+interval)%12;
                     return (
-                      <div key={idx} style={{ display:"flex", alignItems:"center", gap:5, background:"#fff", borderRadius:8, padding:"4px 9px", fontSize:11, border:"1px solid #eee", fontWeight:600 }}>
-                        <div style={{ width:16, height:16, borderRadius:"50%", background:idx===0?ACCENT:`${DEGREE_COLORS[idx]}18`, border:`2px solid ${idx===0?"#d9203c":DEGREE_COLORS[idx]}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:800, color:idx===0?"#fff":DEGREE_COLORS[idx] }}>{idx+1}</div>
-                        <span style={{ color:"#666" }}>{displayName(ni)}</span>
+                      <div key={idx} style={{ display:"flex", alignItems:"center", gap:5, borderRadius:2, padding:"3px 8px", fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.05em", background:CARD }}>
+                        <div style={{ width:14, height:14, borderRadius:"50%", background:idx===0?ACCENT:`${DEGREE_COLORS[idx]}18`, border:`1.5px solid ${idx===0?"#a33515":DEGREE_COLORS[idx]}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.5rem", fontWeight:400, color:idx===0?"#fff":DEGREE_COLORS[idx] }}>{idx+1}</div>
+                        <span style={{ color:"#5a5651" }}>{displayName(ni)}</span>
                       </div>
                     );
                   })}
@@ -720,11 +701,11 @@ export default function App() {
               {(mode === "caged" || mode === "triads") && (
                 <div style={{ display:"flex", gap:8, marginTop:10, justifyContent:"center" }}>
                   {[["R",0],["3",1],["5",2]].map(([lbl, i]) => {
-                    const ivs = mode === "caged" ? [0,4,7] : triadIntervals;
+                    const ivs = mode==="caged" ? [0,4,7] : triadIntervals;
                     return (
-                      <div key={lbl} style={{ display:"flex", alignItems:"center", gap:6, background:"#fff", borderRadius:8, padding:"4px 12px", fontSize:11, border:"1px solid #eee", fontWeight:700 }}>
-                        <div style={{ width:12, height:12, borderRadius:"50%", background:CHORD_COLORS[i], flexShrink:0 }} />
-                        <span style={{ color:"#444" }}>{lbl} = {displayName((rootNote+ivs[i])%12)}</span>
+                      <div key={lbl} style={{ display:"flex", alignItems:"center", gap:6, borderRadius:2, padding:"3px 10px", fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.08em", background:CARD }}>
+                        <div style={{ width:10, height:10, borderRadius:"50%", background:CHORD_COLORS[i], flexShrink:0 }} />
+                        <span style={{ color:"#5a5651", textTransform:"uppercase" }}>{lbl} = {displayName((rootNote+ivs[i])%12)}</span>
                       </div>
                     );
                   })}
@@ -736,16 +717,17 @@ export default function App() {
           {/* ── Bottom panels ──────────────────────────────────────────── */}
 
           {mode === "intervals" && (
-            <div style={{ marginTop:12 }}>
-              <div style={{ fontSize:10, color:"#aaa", marginBottom:6, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px" }}>Schnellwahl</div>
+            <div style={{ marginTop:14 }}>
+              <p style={sectionLabel}>Schnellwahl</p>
               <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                 {Object.entries(INTERVALS).map(([name, semi]) => (
                   <button key={name} onClick={() => setSelectedInterval(name)} style={{
-                    padding:"6px 10px", border:"1px solid", borderRadius:8, cursor:"pointer",
-                    fontSize:12, fontWeight:700, transition:"all 0.15s",
-                    background:  selectedInterval===name ? INTERVAL_COLORS[semi] : "#fff",
-                    borderColor: selectedInterval===name ? INTERVAL_COLORS[semi] : "#eee",
-                    color:       selectedInterval===name ? "#fff" : "#999",
+                    padding:"5px 10px", border:`1px solid`, borderRadius:2, cursor:"pointer",
+                    fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+                    letterSpacing:"0.04em", transition:"all 0.15s",
+                    background:  selectedInterval===name ? INTERVAL_COLORS[semi] : "transparent",
+                    borderColor: selectedInterval===name ? INTERVAL_COLORS[semi] : RULE,
+                    color:       selectedInterval===name ? "#fff" : MUTED,
                   }}>{name.match(/\((.+)\)/)?.[1]}</button>
                 ))}
               </div>
@@ -753,14 +735,14 @@ export default function App() {
           )}
 
           {mode === "finder" && (
-            <div style={{ marginTop:12, background:"#fff", borderRadius:10, padding:"12px 14px", border:"1px solid #eee" }}>
-              <div style={{ fontSize:10, color:"#aaa", marginBottom:8, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px" }}>{displayName(finderNote)} – alle Positionen</div>
+            <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
+              <p style={sectionLabel}>{displayName(finderNote)} – alle Positionen</p>
               <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                 {TUNING.flatMap((_,sIdx) =>
                   Array.from({length:FRET_COUNT+1},(_,f)=>({s:sIdx,f}))
                     .filter(({s,f})=>getNoteAt(s,f)===finderNote)
                 ).map(({s,f},i)=>(
-                  <span key={i} style={{ padding:"4px 10px", background:ACCENT_SOFT, border:`1px solid ${ACCENT}33`, borderRadius:6, fontSize:11, color:ACCENT, fontWeight:700 }}>
+                  <span key={i} style={{ padding:"3px 9px", background:ACCENT_SOFT, border:`1px solid ${ACCENT}30`, borderRadius:2, fontSize:"0.6875rem", color:ACCENT, fontWeight:400, letterSpacing:"0.04em" }}>
                     {STRING_NAMES[s]}{f===0?" leer":` Bund ${f}`}
                   </span>
                 ))}
@@ -769,30 +751,29 @@ export default function App() {
           )}
 
           {mode === "triads" && (
-            <div style={{ marginTop:12, background:"#fff", borderRadius:10, padding:"12px 14px", border:"1px solid #eee" }}>
-              <div style={{ fontSize:10, color:"#aaa", marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px" }}>
-                Alle Lagen – {TRIAD_GROUP_LABELS[triadGroup]}
-              </div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
+              <p style={sectionLabel}>Alle Lagen – {TRIAD_GROUP_LABELS[triadGroup]}</p>
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
                 {[0,1,2].map(inv => {
                   const v = getTriadVoicing(rootNote, triadIntervals, inv, triadGroup);
                   if (!v) return null;
                   const active = triadInversion === inv;
                   return (
                     <button key={inv} onClick={()=>setTriadInversion(inv)} style={{
-                      padding:"9px 14px", border:"1px solid", borderRadius:10, cursor:"pointer",
-                      background:  active ? "#1a1a1a" : "#fff",
-                      borderColor: active ? "#1a1a1a" : "#eee",
+                      padding:"9px 14px", border:`1px solid`, borderRadius:2, cursor:"pointer",
+                      background:  active ? FG : "transparent",
+                      borderColor: active ? FG : RULE,
                       textAlign:"left", transition:"all 0.15s", flex:"1 1 auto",
+                      fontFamily:"'DM Mono','Menlo',monospace",
                     }}>
-                      <div style={{ fontSize:10, fontWeight:700, color:active?"#666":"#bbb", marginBottom:4, textTransform:"uppercase", letterSpacing:"0.5px" }}>{TRIAD_INVERSIONS[inv]}</div>
-                      <div style={{ display:"flex", gap:0, flexWrap:"wrap" }}>
+                      <div style={{ fontSize:"0.5625rem", fontWeight:400, color:active?"#888":MUTED, marginBottom:4, textTransform:"uppercase", letterSpacing:"0.12em" }}>{TRIAD_INVERSIONS[inv]}</div>
+                      <div style={{ display:"flex", gap:0 }}>
                         {v.map((n,ni)=>(
-                          <span key={ni} style={{ fontSize:12, fontWeight:800 }}>
+                          <span key={ni} style={{ fontSize:"0.75rem", fontWeight:400 }}>
                             <span style={{ color: active ? CHORD_COLORS[n.d] : CHORD_COLORS[n.d]+"66" }}>
                               {STRING_NAMES[n.s]}{n.f}
                             </span>
-                            {ni < v.length-1 && <span style={{ color:active?"#444":"#ccc", fontWeight:400 }}> – </span>}
+                            {ni < v.length-1 && <span style={{ color:active?"#666":RULE, fontWeight:300 }}> – </span>}
                           </span>
                         ))}
                       </div>
@@ -814,62 +795,60 @@ export default function App() {
 function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner }) {
   const cents = tunerNote?.cents ?? 0;
   const inTune = tunerNote && Math.abs(cents) <= 5;
-  const meterColor = inTune ? "#2ecc71" : Math.abs(cents) <= 20 ? "#f39c12" : ACCENT;
+  const meterColor = inTune ? "#2ecc71" : Math.abs(cents) <= 20 ? "#e67e22" : ACCENT;
   const meterPct = Math.min(Math.max((cents + 50) / 100, 0), 1);
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:16 }}>
+    <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
 
       {/* Main display */}
-      <div style={{ background:"#fff", borderRadius:14, border:"1px solid #eee", padding:"24px 20px 30px", textAlign:"center" }}>
-        <div style={{ fontSize:76, fontWeight:800, lineHeight:1, letterSpacing:"-3px", minHeight:80, color:tunerNote ? meterColor : "#e8e8e8", transition:"color 0.1s" }}>
-          {tunerNote ? tunerNote.noteName : "–"}
-          {tunerNote && <span style={{ fontSize:26, fontWeight:600, color:"#ccc", letterSpacing:0, marginLeft:3 }}>{tunerNote.octave}</span>}
+      <div style={{ background:CARD, border:`1px solid ${RULE}`, padding:"28px 20px 32px", textAlign:"center", borderRadius:3 }}>
+        <div style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"clamp(4rem,14vw,6rem)", fontWeight:400, lineHeight:1, letterSpacing:"-0.03em", minHeight:"4.5rem", color:tunerNote ? meterColor : "#d4d0ca", transition:"color 0.1s" }}>
+          {tunerNote ? tunerNote.noteName : "—"}
+          {tunerNote && <span style={{ fontSize:"1.5rem", fontWeight:400, color:MUTED, letterSpacing:0, marginLeft:4 }}>{tunerNote.octave}</span>}
         </div>
-        <div style={{ fontSize:12, color:"#ccc", marginTop:4, fontWeight:600 }}>
-          {tunerNote ? `${tunerNote.freq.toFixed(1)} Hz` : tunerActive ? "Warte auf Signal…" : "–"}
+        <div style={{ fontSize:"0.6875rem", color:MUTED, marginTop:6, fontWeight:300, letterSpacing:"0.08em" }}>
+          {tunerNote ? `${tunerNote.freq.toFixed(1)} Hz` : tunerActive ? "Warte auf Signal…" : "—"}
         </div>
 
         {/* Cents meter */}
-        <div style={{ marginTop:22, position:"relative", height:44, padding:"0 12px" }}>
-          {/* Track */}
-          <div style={{ position:"absolute", top:"50%", left:12, right:12, height:3, background:"#f0f0f0", borderRadius:3, transform:"translateY(-50%)" }} />
-          {/* Center mark */}
-          <div style={{ position:"absolute", top:4, bottom:4, left:"50%", width:1, background:"#e0e0e0", transform:"translateX(-50%)" }} />
-          {/* Needle */}
+        <div style={{ marginTop:24, position:"relative", height:44, padding:"0 12px" }}>
+          <div style={{ position:"absolute", top:"50%", left:12, right:12, height:1, background:RULE, transform:"translateY(-50%)" }} />
+          <div style={{ position:"absolute", top:6, bottom:6, left:"50%", width:1, background:RULE, transform:"translateX(-50%)" }} />
           {tunerNote && (
             <div style={{
-              position:"absolute", top:"50%", width:16, height:16, borderRadius:"50%",
+              position:"absolute", top:"50%", width:14, height:14, borderRadius:"50%",
               background:meterColor, transform:"translate(-50%,-50%)",
               left:`calc(12px + ${meterPct} * (100% - 24px))`,
               transition:"left 0.08s ease-out, background 0.1s",
-              boxShadow:`0 0 12px ${meterColor}99`,
+              boxShadow:`0 0 10px ${meterColor}88`,
             }} />
           )}
-          <div style={{ position:"absolute", bottom:2, left:12, fontSize:11, color:"#ccc", fontWeight:700 }}>♭</div>
-          <div style={{ position:"absolute", bottom:2, right:12, fontSize:11, color:"#ccc", fontWeight:700 }}>♯</div>
-          <div style={{ position:"absolute", bottom:2, left:"50%", transform:"translateX(-50%)", fontSize:11, fontWeight:800, transition:"color 0.1s",
-            color: inTune ? "#2ecc71" : tunerNote ? "#bbb" : "#ddd" }}>
+          <div style={{ position:"absolute", bottom:0, left:12, fontSize:"0.625rem", color:MUTED }}>♭</div>
+          <div style={{ position:"absolute", bottom:0, right:12, fontSize:"0.625rem", color:MUTED }}>♯</div>
+          <div style={{ position:"absolute", bottom:0, left:"50%", transform:"translateX(-50%)", fontSize:"0.6875rem", fontWeight:400, transition:"color 0.1s", letterSpacing:"0.04em",
+            color: inTune ? "#2ecc71" : tunerNote ? MUTED : RULE }}>
             {inTune ? "✓" : tunerNote ? `${cents>0?"+":""}${cents}¢` : "0¢"}
           </div>
         </div>
       </div>
 
       {/* String reference */}
-      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #eee", padding:"12px 14px" }}>
-        <div style={{ fontSize:10, color:"#bbb", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:8 }}>Standard-Stimmung</div>
-        <div style={{ display:"flex", gap:5 }}>
+      <div style={{ background:CARD, borderRadius:3, border:`1px solid ${RULE}`, padding:"12px 14px" }}>
+        <p style={sectionLabel}>Standard-Stimmung</p>
+        <div style={{ display:"flex", gap:4 }}>
           {GUITAR_STRING_FREQS.map((freq, i) => {
             const sIdx = 5 - i;
             const targetNote = TUNING[sIdx];
             const isActive = tunerNote?.noteIdx === targetNote;
             const isTuned  = isActive && Math.abs(tunerNote.cents) <= 10;
-            const bg = isTuned ? "#2ecc71" : isActive ? meterColor : "#f5f5f5";
+            const bg = isTuned ? "#2ecc71" : isActive ? meterColor : "transparent";
+            const bdr = isTuned ? "#2ecc71" : isActive ? meterColor : RULE;
             return (
               <div key={i} style={{ flex:1, textAlign:"center" }}>
-                <div style={{ borderRadius:9, padding:"8px 4px", background:bg, transition:"background 0.1s", boxShadow:isActive?`0 2px 8px ${bg}66`:"none" }}>
-                  <div style={{ fontSize:15, fontWeight:800, color:isActive?"#fff":"#bbb" }}>{STRING_NAMES[sIdx]}</div>
-                  <div style={{ fontSize:8, fontWeight:600, color:isActive?"rgba(255,255,255,0.65)":"#ccc", marginTop:1 }}>{freq}</div>
+                <div style={{ border:`1px solid ${bdr}`, borderRadius:2, padding:"7px 4px", background:bg, transition:"all 0.1s" }}>
+                  <div style={{ fontSize:"0.875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace", color:isActive?"#fff":MUTED }}>{STRING_NAMES[sIdx]}</div>
+                  <div style={{ fontSize:"0.5rem", color:isActive?"rgba(255,255,255,0.65)":RULE, marginTop:1, letterSpacing:"0.03em" }}>{freq}</div>
                 </div>
               </div>
             );
@@ -879,16 +858,17 @@ function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner 
 
       {/* Button */}
       <button onClick={tunerActive ? stopTuner : startTuner} style={{
-        padding:"13px 24px", border:"none", borderRadius:12, cursor:"pointer",
-        fontSize:14, fontWeight:800, transition:"all 0.2s",
-        background: tunerActive ? "#f0f0f0" : ACCENT,
-        color:      tunerActive ? "#999" : "#fff",
-        boxShadow:  tunerActive ? "none" : `0 4px 16px ${ACCENT}44`,
+        padding:"12px 24px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+        fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+        letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.2s",
+        background: tunerActive ? "transparent" : FG,
+        borderColor: tunerActive ? RULE : FG,
+        color:       tunerActive ? MUTED : BG,
       }}>
         {tunerActive ? "Mikrofon stoppen" : "Mikrofon starten"}
       </button>
 
-      {tunerError && <div style={{ color:ACCENT, fontSize:12, textAlign:"center", fontWeight:600 }}>{tunerError}</div>}
+      {tunerError && <div style={{ color:ACCENT, fontSize:"0.75rem", textAlign:"center", fontWeight:400, letterSpacing:"0.04em" }}>{tunerError}</div>}
     </div>
   );
 }
@@ -896,12 +876,20 @@ function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner 
 // ─── Style constants ───────────────────────────────────────────────────────────
 
 const labelStyle = {
-  fontSize:10, color:"#aaa", display:"block", marginBottom:4,
-  fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px",
+  fontSize:"0.5625rem", color:MUTED, display:"block", marginBottom:5,
+  fontWeight:400, textTransform:"uppercase", letterSpacing:"0.12em",
+  fontFamily:"'DM Mono','Menlo',monospace",
+};
+
+const sectionLabel = {
+  fontSize:"0.5625rem", color:MUTED, marginBottom:8,
+  fontWeight:400, textTransform:"uppercase", letterSpacing:"0.12em",
+  fontFamily:"'DM Mono','Menlo',monospace",
 };
 
 const selectStyle = {
-  width:"100%", padding:"8px 10px", borderRadius:8, border:"1px solid #e0e0e0",
-  background:"#fff", color:"#333", fontSize:13, fontWeight:600, outline:"none",
-  appearance:"auto", cursor:"pointer", fontFamily:"'Manrope',sans-serif",
+  width:"100%", padding:"7px 9px", borderRadius:2, border:`1px solid ${RULE}`,
+  background:CARD, color:FG, fontSize:"0.8125rem", fontWeight:300, outline:"none",
+  appearance:"auto", cursor:"pointer", fontFamily:"'DM Mono','Menlo',monospace",
+  WebkitAppearance:"auto",
 };
