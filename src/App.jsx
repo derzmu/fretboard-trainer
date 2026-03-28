@@ -202,8 +202,8 @@ document.head.appendChild(fontLink);
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [mode, setMode] = useState("scales");
-  const [tunerOpen, setTunerOpen] = useState(false);
+  const [category, setCategory] = useState("theorie"); // "theorie" | "praxis"
+  const [mode, setMode]         = useState("scales");
 
   const [rootNote, setRootNote]       = useState(0);
   const [hoveredFret, setHoveredFret] = useState(null);
@@ -230,6 +230,18 @@ export default function App() {
   const freqHistoryRef = useRef([]);
   const stableRef     = useRef({ key: null, count: 0 });
   const silenceRef    = useRef(0);
+
+  const [bpm, setBpm]                 = useState(100);
+  const [beatsPerBar, setBeatsPerBar] = useState(4);
+  const [metroPlaying, setMetroPlaying] = useState(false);
+  const [currentBeat, setCurrentBeat]   = useState(-1);
+  const metroCtxRef     = useRef(null);
+  const schedulerRef    = useRef(null);
+  const nextNoteTimeRef = useRef(0);
+  const currentBeatRef  = useRef(0);
+  const bpmRef          = useRef(100);
+  const beatsRef        = useRef(4);
+  const tapTimesRef     = useRef([]);
 
   const stopTuner = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -307,6 +319,74 @@ export default function App() {
   }, []);
 
   useEffect(() => () => stopTuner(), [stopTuner]);
+
+  // ─── Metronome ────────────────────────────────────────────────────────────
+
+  useEffect(() => { bpmRef.current = bpm; }, [bpm]);
+  useEffect(() => { beatsRef.current = beatsPerBar; }, [beatsPerBar]);
+
+  const scheduleClick = useCallback((time, isAccent) => {
+    const ctx = metroCtxRef.current;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env);
+    env.connect(ctx.destination);
+    osc.frequency.value = isAccent ? 1400 : 880;
+    env.gain.setValueAtTime(isAccent ? 0.7 : 0.4, time);
+    env.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
+    osc.start(time);
+    osc.stop(time + 0.05);
+  }, []);
+
+  const runScheduler = useCallback(() => {
+    const ctx = metroCtxRef.current;
+    if (!ctx) return;
+    while (nextNoteTimeRef.current < ctx.currentTime + 0.1) {
+      const beat = currentBeatRef.current % beatsRef.current;
+      scheduleClick(nextNoteTimeRef.current, beat === 0);
+      const delay = Math.max(0, (nextNoteTimeRef.current - ctx.currentTime) * 1000);
+      const b = beat;
+      setTimeout(() => setCurrentBeat(b), delay);
+      nextNoteTimeRef.current += 60 / bpmRef.current;
+      currentBeatRef.current++;
+    }
+  }, [scheduleClick]);
+
+  const stopMetronome = useCallback(() => {
+    if (schedulerRef.current) clearInterval(schedulerRef.current);
+    schedulerRef.current = null;
+    setMetroPlaying(false);
+    setCurrentBeat(-1);
+  }, []);
+
+  const startMetronome = useCallback(async () => {
+    if (!metroCtxRef.current || metroCtxRef.current.state === "closed") {
+      metroCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (metroCtxRef.current.state === "suspended") await metroCtxRef.current.resume();
+    currentBeatRef.current = 0;
+    nextNoteTimeRef.current = metroCtxRef.current.currentTime + 0.05;
+    schedulerRef.current = setInterval(runScheduler, 25);
+    setMetroPlaying(true);
+  }, [runScheduler]);
+
+  const handleTap = useCallback(() => {
+    const now = performance.now();
+    const taps = tapTimesRef.current;
+    if (taps.length > 0 && now - taps[taps.length - 1] > 2000) tapTimesRef.current = [];
+    tapTimesRef.current.push(now);
+    if (tapTimesRef.current.length > 8) tapTimesRef.current.shift();
+    if (tapTimesRef.current.length >= 2) {
+      const intervals = [];
+      for (let i = 1; i < tapTimesRef.current.length; i++) intervals.push(tapTimesRef.current[i] - tapTimesRef.current[i-1]);
+      const avg = intervals.reduce((a,b) => a+b,0) / intervals.length;
+      const newBpm = Math.round(Math.min(240, Math.max(40, 60000 / avg)));
+      setBpm(newBpm);
+      bpmRef.current = newBpm;
+    }
+  }, []);
+
+  useEffect(() => () => stopMetronome(), [stopMetronome]);
 
   // ─── Computed ─────────────────────────────────────────────────────────────
 
@@ -413,63 +493,81 @@ export default function App() {
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
 
-  const TABS = [
+  const THEORY_TABS = [
     { id: "scales",    label: "Skalen"    },
     { id: "caged",     label: "CAGED"     },
     { id: "triads",    label: "Triaden"   },
     { id: "intervals", label: "Intervall" },
     { id: "finder",    label: "Finder"    },
   ];
+  const PRAXIS_TABS = [
+    { id: "tuner",     label: "Stimmgerät" },
+    { id: "metronome", label: "Metronom"   },
+  ];
+  const currentTabs = category === "theorie" ? THEORY_TABS : PRAXIS_TABS;
+
+  const switchCategory = (cat) => {
+    if (cat === category) return;
+    setCategory(cat);
+    if (cat === "theorie") { setMode("scales"); stopTuner(); stopMetronome(); }
+    else                   { setMode("tuner");  stopMetronome(); }
+  };
 
   return (
     <div style={{ fontFamily:"'DM Mono','Menlo',monospace", fontWeight:300, background:BG, color:FG, minHeight:"100vh", padding:"16px", boxSizing:"border-box", WebkitFontSmoothing:"antialiased" }}>
       <div style={{ maxWidth:960, margin:"0 auto" }}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
-          <h1 style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(1.6rem,4vw,2.2rem)", margin:0, color:FG, letterSpacing:"-0.02em", lineHeight:1.05 }}>
-            Griffbrett-Trainer
-          </h1>
-          <button
-            onClick={() => { setTunerOpen(o => { if (o) stopTuner(); return !o; }); }}
-            style={{
-              padding:"7px 14px", border:`1px solid`, borderRadius:3, cursor:"pointer",
-              fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-              letterSpacing:"0.08em", textTransform:"uppercase", transition:"all 0.2s",
-              background: tunerOpen ? FG : "transparent",
-              borderColor: tunerOpen ? FG : RULE,
-              color: tunerOpen ? BG : MUTED,
-            }}
-          >
-            {tunerActive ? "● Live" : "Stimmgerät"}
-          </button>
+        <h1 style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(1.6rem,4vw,2.2rem)", margin:"0 0 20px", color:FG, letterSpacing:"-0.02em", lineHeight:1.05 }}>
+          Griffbrett-Trainer
+        </h1>
+
+        {/* ── Category bar ────────────────────────────────────────────────── */}
+        <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${RULE}`, marginBottom:0 }}>
+          {["theorie","praxis"].map(cat => (
+            <button key={cat} onClick={() => switchCategory(cat)} style={{
+              padding:"6px 0 9px", marginRight:24, border:"none",
+              borderBottom: category===cat ? `1px solid ${FG}` : "1px solid transparent",
+              marginBottom:"-1px", background:"transparent", cursor:"pointer",
+              fontSize:"0.5625rem", fontWeight: category===cat ? 400 : 300,
+              fontFamily:"'DM Mono','Menlo',monospace",
+              letterSpacing:"0.15em", textTransform:"uppercase", transition:"all 0.15s",
+              color: category===cat ? FG : MUTED,
+            }}>{cat}</button>
+          ))}
         </div>
 
-        <div style={{ borderTop:`1px solid ${RULE}`, marginBottom:20 }} />
+        {/* ── Sub-tab bar ─────────────────────────────────────────────────── */}
+        <div style={{ display:"flex", gap:0, marginBottom:16, marginTop:12, borderBottom:`1px solid ${RULE}` }}>
+          {currentTabs.map(t => (
+            <button key={t.id} onClick={() => setMode(t.id)} style={{
+              flex:1, padding:"8px 0 10px", border:"none",
+              borderBottom: mode===t.id ? `1px solid ${FG}` : "1px solid transparent",
+              marginBottom:"-1px", background:"transparent", cursor:"pointer",
+              fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+              letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.15s",
+              color: mode===t.id ? FG : MUTED,
+            }}>{t.label}</button>
+          ))}
+        </div>
 
-        {/* ── Tuner ──────────────────────────────────────────────────────── */}
-        {tunerOpen && (
+        {/* ── Praxis panels ───────────────────────────────────────────────── */}
+        {mode === "tuner" && (
           <TunerPanel
             tunerActive={tunerActive} tunerNote={tunerNote} tunerError={tunerError}
             startTuner={startTuner} stopTuner={stopTuner}
           />
         )}
+        {mode === "metronome" && (
+          <MetronomePanel
+            bpm={bpm} setBpm={setBpm} beatsPerBar={beatsPerBar} setBeatsPerBar={setBeatsPerBar}
+            isPlaying={metroPlaying} currentBeat={currentBeat}
+            onStart={startMetronome} onStop={stopMetronome} onTap={handleTap}
+          />
+        )}
 
         {/* ── Fretboard modes ────────────────────────────────────────────── */}
-        {!tunerOpen && (<>
-
-          {/* Tab bar */}
-          <div style={{ display:"flex", gap:0, marginBottom:16, borderBottom:`1px solid ${RULE}` }}>
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setMode(t.id)} style={{
-                flex:1, padding:"8px 0 10px", border:"none", borderBottom: mode===t.id ? `1px solid ${FG}` : "1px solid transparent",
-                marginBottom:"-1px", background:"transparent", cursor:"pointer",
-                fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-                letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.15s",
-                color: mode===t.id ? FG : MUTED,
-              }}>{t.label}</button>
-            ))}
-          </div>
+        {category === "theorie" && (<>
 
           {/* Controls */}
           <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"flex-end" }}>
@@ -877,6 +975,72 @@ function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner 
       </button>
 
       {tunerError && <div style={{ color:ACCENT, fontSize:"0.75rem", textAlign:"center", fontWeight:400, letterSpacing:"0.04em" }}>{tunerError}</div>}
+    </div>
+  );
+}
+
+// ─── Metronome Panel ──────────────────────────────────────────────────────────
+
+function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, currentBeat, onStart, onStop, onTap }) {
+  const btnBase = {
+    border:`1px solid ${RULE}`, borderRadius:3, cursor:"pointer",
+    background:"transparent", fontFamily:"'DM Mono','Menlo',monospace",
+    fontWeight:400, letterSpacing:"0.06em", transition:"all 0.15s", color:FG,
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
+
+      {/* BPM display */}
+      <div style={{ background:CARD, border:`1px solid ${RULE}`, borderRadius:3, padding:"28px 20px 24px", textAlign:"center" }}>
+        <div style={{ fontSize:"0.5625rem", color:MUTED, textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'DM Mono','Menlo',monospace", marginBottom:14 }}>Tempo</div>
+
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:20 }}>
+          <button onPointerDown={() => setBpm(b => Math.max(40, b - 1))} style={{ ...btnBase, padding:"8px 16px", fontSize:"1.25rem", lineHeight:1 }}>−</button>
+          <div style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(3.5rem,12vw,5rem)", lineHeight:1, letterSpacing:"-0.03em", minWidth:"3.5ch", textAlign:"center", color: isPlaying ? ACCENT : FG, transition:"color 0.2s" }}>
+            {bpm}
+          </div>
+          <button onPointerDown={() => setBpm(b => Math.min(240, b + 1))} style={{ ...btnBase, padding:"8px 16px", fontSize:"1.25rem", lineHeight:1 }}>+</button>
+        </div>
+
+        <div style={{ fontSize:"0.5625rem", color:MUTED, textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'DM Mono','Menlo',monospace", marginTop:6 }}>bpm</div>
+
+        {/* Beat dots */}
+        <div style={{ display:"flex", justifyContent:"center", gap:10, marginTop:22 }}>
+          {Array.from({ length: beatsPerBar }).map((_, i) => (
+            <div key={i} style={{
+              width:10, height:10, borderRadius:"50%",
+              background: i === currentBeat ? (i === 0 ? ACCENT : FG) : RULE,
+              transition:"background 0.05s",
+            }} />
+          ))}
+        </div>
+      </div>
+
+      {/* Controls row */}
+      <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
+        <div style={{ flex:"0 0 90px" }}>
+          <div style={{ fontSize:"0.5625rem", color:MUTED, display:"block", marginBottom:5, fontWeight:400, textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'DM Mono','Menlo',monospace" }}>Taktart</div>
+          <select value={beatsPerBar} onChange={e => setBeatsPerBar(+e.target.value)} style={{ width:"100%", padding:"7px 9px", borderRadius:2, border:`1px solid ${RULE}`, background:CARD, color:FG, fontSize:"0.8125rem", fontWeight:300, outline:"none", cursor:"pointer", fontFamily:"'DM Mono','Menlo',monospace" }}>
+            {[2,3,4,6].map(n => <option key={n} value={n}>{n}/4</option>)}
+          </select>
+        </div>
+        <button onClick={onTap} style={{ ...btnBase, flex:"1 1 0", padding:"8px 14px", fontSize:"0.6875rem", textTransform:"uppercase", letterSpacing:"0.1em", alignSelf:"flex-end", color:MUTED }}>
+          Tap Tempo
+        </button>
+      </div>
+
+      {/* Play / Stop */}
+      <button onClick={isPlaying ? onStop : onStart} style={{
+        padding:"12px 24px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+        fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+        letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.2s",
+        background: isPlaying ? "transparent" : FG,
+        borderColor: isPlaying ? RULE : FG,
+        color:       isPlaying ? MUTED : BG,
+      }}>
+        {isPlaying ? "Stoppen" : "Starten"}
+      </button>
     </div>
   );
 }
