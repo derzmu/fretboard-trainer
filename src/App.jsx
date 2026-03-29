@@ -4,13 +4,13 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const NOTE_LABELS = { "C#": "C#/Db", "D#": "D#/Eb", "F#": "F#/Gb", "G#": "G#/Ab", "A#": "A#/Bb" };
-const TUNING = [4, 11, 7, 2, 9, 4]; // e B G D A E (index 0 = highest string)
+const TUNING = [4, 11, 7, 2, 9, 4]; // e B G D A E (index 0 = highest string) — default / module-level
 const STRING_NAMES = ["e", "B", "G", "D", "A", "E"];
-const FRET_COUNT = 15;
+const FRET_COUNT = 15; // module-level default; runtime value is activeFretCount
 const DOT_FRETS = [3, 5, 7, 9, 12, 15];
 const DOUBLE_DOT = [12];
 
-// Portfolio palette: warm cream, terracotta accent
+// Portfolio palette
 const ACCENT      = "#c4401a";
 const ACCENT_SOFT = "#c4401a18";
 const BG          = "#f5f2ed";
@@ -20,7 +20,6 @@ const FG          = "#1a1a18";
 const MUTED       = "#9e9a93";
 
 const DEGREE_COLORS = ["#c4401a","#e67e22","#b8920a","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00bcd4","#8bc34a","#ff5722","#607d8b"];
-const INTERVAL_COLORS = { 3:"#e74c3c", 4:"#e67e22", 5:"#b8920a", 7:"#2ecc71", 10:"#3498db", 11:"#9b59b6", 12:"#1abc9c" };
 // Root, 3rd, 5th
 const CHORD_COLORS = ["#c4401a", "#e67e22", "#2ecc71"];
 
@@ -39,26 +38,33 @@ const SCALES = {
   "Lokrisch":            [0,1,3,5,6,8,10],
 };
 
-const INTERVALS = {
-  "Kleine Terz (m3)":    3,
-  "Große Terz (M3)":     4,
-  "Reine Quarte (P4)":   5,
-  "Reine Quinte (P5)":   7,
-  "Kleine Septime (m7)": 10,
-  "Große Septime (M7)":  11,
-  "Oktave (P8)":         12,
+// ─── Tuning presets ───────────────────────────────────────────────────────────
+
+const TUNING_PRESETS = {
+  "Standard E": [4,11,7,2,9,4],
+  "Drop D":     [4,11,7,2,9,2],
+  "Eb (♭½)":    [3,10,6,1,8,3],
+  "D (♭1)":     [2, 9,5,0,7,2],
+  "Open G":     [2,11,7,2,7,2],
+  "DADGAD":     [2, 9,7,2,9,2],
 };
 
-const TRIAD_TYPES = {
-  "Dur":        [0, 4, 7],
-  "Moll":       [0, 3, 7],
-  "Vermindert": [0, 3, 6],
-  "Übermäßig":  [0, 4, 8],
-};
+// ─── Diatonic chords (7-note scales only) ─────────────────────────────────────
 
-const TRIAD_INVERSIONS = ["Grundst.", "1. Umk.", "2. Umk."];
-const TRIAD_GROUPS = [[2,1,0], [3,2,1], [4,3,2], [5,4,3]];
-const TRIAD_GROUP_LABELS = ["G–B–e", "D–G–B", "A–D–G", "E–A–D"];
+const ROMAN = ["I","II","III","IV","V","VI","VII"];
+
+function getDiatonicChords(scale, rootNote) {
+  if (scale.length !== 7) return null;
+  return scale.map((deg, i) => {
+    const root = (rootNote + deg) % 12;
+    const thirdInterval = ((scale[(i+2)%7] - deg) % 12 + 12) % 12;
+    const fifthInterval = ((scale[(i+4)%7] - deg) % 12 + 12) % 12;
+    const quality = thirdInterval === 4 && fifthInterval === 7 ? "maj"
+                  : thirdInterval === 3 && fifthInterval === 7 ? "min"
+                  : thirdInterval === 3 && fifthInterval === 6 ? "dim" : "";
+    return { root, quality, degree: i };
+  });
+}
 
 // ─── Chord Voicing Templates ───────────────────────────────────────────────────
 
@@ -107,90 +113,6 @@ const GUITAR_STRING_FREQS = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63];
 
 function getNoteAt(s, f) { return (TUNING[s] + f) % 12; }
 function displayName(i) { const n = NOTES[i]; return NOTE_LABELS[n] || n; }
-function normF(f) { return f < 0 ? f + 12 : f; }
-
-// ─── CAGED Shapes ─────────────────────────────────────────────────────────────
-
-const CAGED_SHAPES = {
-  E: (root) => {
-    const f = ((root - TUNING[5]) % 12 + 12) % 12;
-    return [
-      { s:5, f: f,   d:0 },
-      { s:4, f: f+2, d:2 },
-      { s:3, f: f+2, d:0 },
-      { s:2, f: f+1, d:1 },
-      { s:1, f: f,   d:2 },
-      { s:0, f: f,   d:0 },
-    ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
-  },
-  A: (root) => {
-    const f = ((root - TUNING[4]) % 12 + 12) % 12 || 12;
-    return [
-      { s:4, f: f,   d:0 },
-      { s:3, f: f+2, d:2 },
-      { s:2, f: f+2, d:0 },
-      { s:1, f: f+2, d:1 },
-      { s:0, f: f,   d:2 },
-    ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
-  },
-  G: (root) => {
-    const f = ((root - TUNING[5]) % 12 + 12) % 12 || 12;
-    return [
-      { s:5, f: f,           d:0 },
-      { s:4, f: normF(f-1),  d:1 },
-      { s:3, f: normF(f-3),  d:2 },
-      { s:2, f: normF(f-3),  d:0 },
-      { s:1, f: normF(f-3),  d:1 },
-      { s:0, f: f,           d:0 },
-    ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
-  },
-  C: (root) => {
-    const f = ((root - TUNING[4]) % 12 + 12) % 12 || 12;
-    return [
-      { s:4, f: f,           d:0 },
-      { s:3, f: normF(f-1),  d:1 },
-      { s:2, f: normF(f-3),  d:2 },
-      { s:1, f: normF(f-2),  d:0 },
-      { s:0, f: normF(f-3),  d:1 },
-    ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
-  },
-  D: (root) => {
-    const f = ((root - TUNING[3]) % 12 + 12) % 12;
-    return [
-      { s:3, f: f,   d:0 },
-      { s:2, f: f+2, d:2 },
-      { s:1, f: f+3, d:0 },
-      { s:0, f: f+2, d:1 },
-    ].filter(n => n.f >= 0 && n.f <= FRET_COUNT);
-  },
-};
-
-// ─── Triad voicing ────────────────────────────────────────────────────────────
-
-function getTriadVoicing(rootNote, intervals, inversion, groupIdx) {
-  const group = TRIAD_GROUPS[groupIdx];
-  const pool = intervals.map(i => (rootNote + i) % 12);
-  const degOrder = [[0,1,2],[1,2,0],[2,0,1]][inversion];
-  const target = degOrder.map(d => pool[d]);
-
-  for (let f0 = 0; f0 <= FRET_COUNT; f0++) {
-    if (getNoteAt(group[0], f0) !== target[0]) continue;
-    for (let f1 = Math.max(0,f0-2); f1 <= Math.min(FRET_COUNT,f0+5); f1++) {
-      if (getNoteAt(group[1], f1) !== target[1]) continue;
-      for (let f2 = Math.max(0,f1-2); f2 <= Math.min(FRET_COUNT,f1+5); f2++) {
-        if (getNoteAt(group[2], f2) !== target[2]) continue;
-        if (Math.max(f0,f1,f2) - Math.min(f0,f1,f2) <= 4) {
-          return [
-            { s:group[0], f:f0, d:degOrder[0] },
-            { s:group[1], f:f1, d:degOrder[1] },
-            { s:group[2], f:f2, d:degOrder[2] },
-          ];
-        }
-      }
-    }
-  }
-  return null;
-}
 
 // ─── Pitch detection ──────────────────────────────────────────────────────────
 
@@ -249,20 +171,26 @@ export default function App() {
   const [rootNote, setRootNote]       = useState(0);
   const [hoveredFret, setHoveredFret] = useState(null);
 
-  const [selectedScale, setSelectedScale]   = useState("Moll-Pentatonik");
-  const [highlightRoot, setHighlightRoot]   = useState(true);
+  const [selectedScale, setSelectedScale] = useState("Dur (Ionisch)");
+  const [highlightRoot, setHighlightRoot] = useState(true);
 
-  const [cagedShape, setCagedShape] = useState("E");
+  const [finderNote, setFinderNote] = useState(0);
 
-  const [triadType, setTriadType]           = useState("Dur");
-  const [triadInversion, setTriadInversion] = useState(0);
-  const [triadGroup, setTriadGroup]         = useState(0);
-
-  const [selectedInterval, setSelectedInterval] = useState("Reine Quinte (P5)");
-  const [finderNote, setFinderNote]             = useState(0);
-
-  const [chordType, setChordType]           = useState("Dur");
+  const [chordType, setChordType]             = useState("Dur");
   const [chordVoicingIdx, setChordVoicingIdx] = useState(0);
+
+  // Quiz
+  const [quizTarget,  setQuizTarget]  = useState(null);  // { s, f, noteIdx }
+  const [quizChoices, setQuizChoices] = useState([]);
+  const [quizAnswer,  setQuizAnswer]  = useState(null);
+  const [quizScore,   setQuizScore]   = useState({ correct:0, total:0 });
+  const [quizStreak,  setQuizStreak]  = useState(0);
+
+  // Settings
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("fbt-settings")) || {}; } catch { return {}; }
+  });
 
   const [timingActive, setTimingActive] = useState(false);
   const [timingHits, setTimingHits]     = useState([]);
@@ -508,32 +436,50 @@ export default function App() {
   useEffect(() => () => stopMetronome(), [stopMetronome]);
   useEffect(() => () => stopTiming(), [stopTiming]);
 
+  // ─── Settings ─────────────────────────────────────────────────────────────
+
+  const setSetting = (key, val) => setSettings(s => ({ ...s, [key]: val }));
+  useEffect(() => {
+    try { localStorage.setItem("fbt-settings", JSON.stringify(settings)); } catch {}
+  }, [settings]);
+
+  const leftHanded     = settings.leftHanded  ?? false;
+  const tuningKey      = settings.tuningKey   ?? "Standard E";
+  const activeFretCount = settings.fretCount  ?? 15;
+  const activeTuning   = TUNING_PRESETS[tuningKey] ?? TUNING_PRESETS["Standard E"];
+
+  // ─── Quiz helpers ─────────────────────────────────────────────────────────
+
+  const newQuestion = useCallback(() => {
+    const s = Math.floor(Math.random() * 6);
+    const f = 1 + Math.floor(Math.random() * 12);
+    const noteIdx = (activeTuning[s] + f) % 12;
+    const wrong = [...Array(12).keys()].filter(n => n !== noteIdx)
+      .sort(() => Math.random() - 0.5).slice(0, 3);
+    const choices = [noteIdx, ...wrong].sort(() => Math.random() - 0.5);
+    setQuizTarget({ s, f, noteIdx });
+    setQuizChoices(choices);
+    setQuizAnswer(null);
+  }, [activeTuning]);
+
+  const handleQuizAnswer = useCallback((picked) => {
+    if (quizAnswer !== null || !quizTarget) return;
+    setQuizAnswer(picked);
+    const correct = picked === quizTarget.noteIdx;
+    setQuizScore(sc => ({ correct: sc.correct + (correct?1:0), total: sc.total + 1 }));
+    setQuizStreak(st => correct ? st + 1 : 0);
+    setTimeout(() => newQuestion(), correct ? 800 : 1500);
+  }, [quizAnswer, quizTarget, newQuestion]);
+
+  useEffect(() => {
+    if (mode === "quiz" && !quizTarget) newQuestion();
+  }, [mode, quizTarget, newQuestion]);
+
   // ─── Computed ─────────────────────────────────────────────────────────────
 
   const scaleNotes = useMemo(() =>
     mode === "scales" ? SCALES[selectedScale].map(i => (rootNote + i) % 12) : [],
   [mode, rootNote, selectedScale]);
-
-  const intervalSemitones = INTERVALS[selectedInterval] || 7;
-
-  const cagedData = useMemo(() => {
-    if (mode !== "caged") return null;
-    const notes = CAGED_SHAPES[cagedShape](rootNote);
-    const map = new Map(notes.map(n => [`${n.s}-${n.f}`, n.d]));
-    const frets = notes.map(n => n.f).filter(f => f > 0);
-    return { map, minFret: frets.length ? Math.min(...frets) : 0, maxFret: frets.length ? Math.max(...frets) : 0 };
-  }, [mode, rootNote, cagedShape]);
-
-  const triadIntervals = TRIAD_TYPES[triadType];
-
-  const triadVoicing = useMemo(() => {
-    if (mode !== "triads") return null;
-    return getTriadVoicing(rootNote, triadIntervals, triadInversion, triadGroup);
-  }, [mode, rootNote, triadIntervals, triadInversion, triadGroup]);
-
-  const voicingKeys = useMemo(() =>
-    triadVoicing ? new Set(triadVoicing.map(n => `${n.s}-${n.f}`)) : new Set(),
-  [triadVoicing]);
 
   const chordVoicingData = useMemo(() => {
     if (mode !== "chords") return null;
@@ -548,7 +494,7 @@ export default function App() {
   // ─── Cell info ────────────────────────────────────────────────────────────
 
   const getCellInfo = useCallback((s, f) => {
-    const noteIdx = getNoteAt(s, f);
+    const noteIdx = (activeTuning[s] + f) % 12;
     const noteName = NOTES[noteIdx];
 
     if (mode === "scales") {
@@ -564,51 +510,22 @@ export default function App() {
       };
     }
 
-    if (mode === "caged") {
-      if (!cagedData || !cagedData.map.has(`${s}-${f}`)) return { active: false, noteName };
-      const d = cagedData.map.get(`${s}-${f}`);
-      const col = CHORD_COLORS[d];
-      const isRoot = d === 0;
-      return {
-        active: true, noteName,
-        color:  isRoot ? "#fff" : col,
-        bg:     isRoot ? ACCENT : `${col}22`,
-        border: isRoot ? "#a33515" : col,
-        isRoot, label: ["R","3","5"][d],
-      };
-    }
-
-    if (mode === "triads") {
-      const degIdx = triadIntervals.findIndex(i => (rootNote + i) % 12 === noteIdx);
-      if (degIdx < 0) return { active: false, noteName };
-      const highlighted = voicingKeys.has(`${s}-${f}`);
-      const col = CHORD_COLORS[degIdx];
-      const isRoot = degIdx === 0 && highlighted;
-      return {
-        active: true, noteName,
-        color:  isRoot ? "#fff" : col,
-        bg:     highlighted ? (degIdx === 0 ? ACCENT : `${col}28`) : `${col}0c`,
-        border: highlighted ? col : `${col}30`,
-        isRoot, dimmed: !highlighted,
-        label: ["R","3","5"][degIdx],
-      };
-    }
-
-    if (mode === "intervals") {
-      const isRoot   = noteIdx === rootNote;
-      const isTarget = noteIdx === (rootNote + intervalSemitones) % 12;
-      if (!isRoot && !isTarget) return { active: false, noteName };
-      const col = isRoot ? ACCENT : INTERVAL_COLORS[intervalSemitones];
-      return {
-        active: true, noteName,
-        color: "#fff", bg: col, border: col, isRoot,
-        label: isRoot ? "R" : selectedInterval.match(/\((.+)\)/)?.[1],
-      };
-    }
-
     if (mode === "finder") {
       if (noteIdx !== finderNote) return { active: false, noteName };
       return { active: true, noteName, color: "#fff", bg: ACCENT, border: "#a33515", isRoot: false };
+    }
+
+    if (mode === "quiz") {
+      if (!quizTarget || s !== quizTarget.s || f !== quizTarget.f) return { active: false, noteName };
+      if (quizAnswer === null) return { active: true, noteName, color: MUTED, bg: CARD, border: RULE, isRoot: false, label: "?" };
+      const correct = quizAnswer === quizTarget.noteIdx;
+      return {
+        active: true, noteName, isRoot: correct,
+        color: correct ? "#fff" : "#fff",
+        bg:    correct ? "#2ecc71" : ACCENT,
+        border:correct ? "#27ae60" : "#a33515",
+        label: noteName,
+      };
     }
 
     if (mode === "chords") {
@@ -632,13 +549,13 @@ export default function App() {
     }
 
     return { active: false, noteName };
-  }, [mode, scaleNotes, rootNote, highlightRoot, cagedData, triadIntervals, voicingKeys, intervalSemitones, selectedInterval, finderNote, chordVoicingData, chordType]);
+  }, [mode, scaleNotes, rootNote, highlightRoot, finderNote, quizTarget, quizAnswer, chordVoicingData, chordType, activeTuning]);
 
   const fretWidths = useMemo(() => {
     const w = [];
-    for (let i = 0; i <= FRET_COUNT; i++) w.push(i === 0 ? 38 : Math.max(42, 72 - i * 1.8));
+    for (let i = 0; i <= activeFretCount; i++) w.push(i === 0 ? 38 : Math.max(42, 72 - i * 1.8));
     return w;
-  }, []);
+  }, [activeFretCount]);
   const totalWidth = fretWidths.reduce((a, b) => a + b, 0);
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
@@ -646,11 +563,9 @@ export default function App() {
   const CAT_LABELS = { theorie: "Schule", praxis: "Studio" };
 
   const SCHULE_TABS = [
-    { id: "scales",    label: "Skalen"    },
-    { id: "caged",     label: "CAGED"     },
-    { id: "triads",    label: "Triaden"   },
-    { id: "intervals", label: "Intervall" },
-    { id: "finder",    label: "Finder"    },
+    { id: "finder", label: "Töne"   },
+    { id: "scales", label: "Skalen" },
+    { id: "quiz",   label: "Quiz"   },
   ];
   const STUDIO_TABS = [
     { id: "tuner",     label: "Stimmgerät" },
@@ -662,7 +577,7 @@ export default function App() {
   const switchCategory = (cat) => {
     if (cat === category) return;
     setCategory(cat);
-    if (cat === "theorie") { setMode("scales"); stopTuner(); stopMetronome(); }
+    if (cat === "theorie") { setMode("finder"); stopTuner(); stopMetronome(); }
     else                   { setMode("tuner");  stopMetronome(); }
   };
 
@@ -671,9 +586,44 @@ export default function App() {
       <div style={{ maxWidth:960, margin:"0 auto" }}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <h1 style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(1.6rem,4vw,2.2rem)", margin:"0 0 20px", color:FG, letterSpacing:"-0.02em", lineHeight:1.05 }}>
-          Griffbrett-Trainer
-        </h1>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+          <h1 style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(1.6rem,4vw,2.2rem)", margin:0, color:FG, letterSpacing:"-0.02em", lineHeight:1.05 }}>
+            Griffbrett-Trainer
+          </h1>
+          <button onClick={() => setSettingsOpen(o => !o)} style={{
+            padding:"7px 12px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+            fontSize:"0.875rem", background: settingsOpen ? FG : "transparent",
+            borderColor: settingsOpen ? FG : RULE, color: settingsOpen ? BG : MUTED,
+            transition:"all 0.2s", fontFamily:"'DM Mono','Menlo',monospace",
+          }}>⚙</button>
+        </div>
+
+        {/* ── Settings panel ──────────────────────────────────────────────── */}
+        {settingsOpen && (
+          <div style={{ background:CARD, border:`1px solid ${RULE}`, borderRadius:3, padding:"14px 16px", marginBottom:16, display:"flex", gap:16, flexWrap:"wrap", alignItems:"flex-end" }}>
+            <div>
+              <div style={{ fontSize:"0.5625rem", color:MUTED, fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:6 }}>Linkshändig</div>
+              <button onClick={() => setSetting("leftHanded", !leftHanded)} style={{
+                padding:"6px 14px", border:`1px solid`, borderRadius:2, cursor:"pointer",
+                fontSize:"0.6875rem", fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.08em",
+                background: leftHanded ? FG : "transparent", borderColor: leftHanded ? FG : RULE,
+                color: leftHanded ? BG : MUTED, transition:"all 0.15s",
+              }}>{leftHanded ? "An" : "Aus"}</button>
+            </div>
+            <div style={{ flex:"1 1 160px" }}>
+              <div style={{ fontSize:"0.5625rem", color:MUTED, fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:6 }}>Stimmung</div>
+              <select value={tuningKey} onChange={e => setSetting("tuningKey", e.target.value)} style={{ width:"100%", padding:"7px 9px", borderRadius:2, border:`1px solid ${RULE}`, background:BG, color:FG, fontSize:"0.8125rem", fontWeight:300, outline:"none", cursor:"pointer", fontFamily:"'DM Mono','Menlo',monospace" }}>
+                {Object.keys(TUNING_PRESETS).map(k => <option key={k}>{k}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize:"0.5625rem", color:MUTED, fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:6 }}>Bünde</div>
+              <select value={activeFretCount} onChange={e => setSetting("fretCount", +e.target.value)} style={{ padding:"7px 9px", borderRadius:2, border:`1px solid ${RULE}`, background:BG, color:FG, fontSize:"0.8125rem", fontWeight:300, outline:"none", cursor:"pointer", fontFamily:"'DM Mono','Menlo',monospace" }}>
+                {[12,15,17,22].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* ── Category bar ────────────────────────────────────────────────── */}
         <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${RULE}`, marginBottom:0 }}>
@@ -727,7 +677,7 @@ export default function App() {
           {/* Controls */}
           <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"flex-end" }}>
 
-            {mode !== "finder" && (
+            {(mode === "scales" || mode === "chords") && (
               <div style={{ flex:"1 1 110px" }}>
                 <label style={labelStyle}>Grundton</label>
                 <select value={rootNote} onChange={e => setRootNote(+e.target.value)} style={selectStyle}>
@@ -745,75 +695,9 @@ export default function App() {
               </div>
             )}
 
-            {mode === "caged" && (
-              <div style={{ flex:"0 0 auto" }}>
-                <label style={labelStyle}>Form</label>
-                <div style={{ display:"flex", gap:4 }}>
-                  {["C","A","G","E","D"].map(sh => (
-                    <button key={sh} onClick={() => setCagedShape(sh)} style={{
-                      width:36, height:36, border:`1px solid`, borderRadius:2, cursor:"pointer",
-                      fontSize:"0.8125rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-                      transition:"all 0.15s",
-                      background:  cagedShape===sh ? FG : "transparent",
-                      borderColor: cagedShape===sh ? FG : RULE,
-                      color:       cagedShape===sh ? BG : MUTED,
-                    }}>{sh}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {mode === "triads" && (<>
-              <div style={{ flex:"1 1 110px" }}>
-                <label style={labelStyle}>Akkordtyp</label>
-                <select value={triadType} onChange={e => setTriadType(e.target.value)} style={selectStyle}>
-                  {Object.keys(TRIAD_TYPES).map(t => <option key={t}>{t}</option>)}
-                </select>
-              </div>
-              <div style={{ flex:"0 0 auto" }}>
-                <label style={labelStyle}>Lage</label>
-                <div style={{ display:"flex", gap:3 }}>
-                  {TRIAD_INVERSIONS.map((lbl, i) => (
-                    <button key={i} onClick={() => setTriadInversion(i)} style={{
-                      padding:"7px 10px", border:`1px solid`, borderRadius:2, cursor:"pointer",
-                      fontSize:"0.625rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-                      letterSpacing:"0.06em", textTransform:"uppercase", whiteSpace:"nowrap", transition:"all 0.15s",
-                      background:  triadInversion===i ? FG : "transparent",
-                      borderColor: triadInversion===i ? FG : RULE,
-                      color:       triadInversion===i ? BG : MUTED,
-                    }}>{lbl}</button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ flex:"0 0 auto" }}>
-                <label style={labelStyle}>Saiten</label>
-                <div style={{ display:"flex", gap:3 }}>
-                  {TRIAD_GROUP_LABELS.map((lbl, i) => (
-                    <button key={i} onClick={() => setTriadGroup(i)} style={{
-                      padding:"7px 10px", border:`1px solid`, borderRadius:2, cursor:"pointer",
-                      fontSize:"0.625rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-                      letterSpacing:"0.06em", textTransform:"uppercase", whiteSpace:"nowrap", transition:"all 0.15s",
-                      background:  triadGroup===i ? ACCENT : "transparent",
-                      borderColor: triadGroup===i ? ACCENT : RULE,
-                      color:       triadGroup===i ? "#fff" : MUTED,
-                    }}>{lbl}</button>
-                  ))}
-                </div>
-              </div>
-            </>)}
-
-            {mode === "intervals" && (
-              <div style={{ flex:"2 1 160px" }}>
-                <label style={labelStyle}>Intervall</label>
-                <select value={selectedInterval} onChange={e => setSelectedInterval(e.target.value)} style={selectStyle}>
-                  {Object.keys(INTERVALS).map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-            )}
-
             {mode === "finder" && (
               <div style={{ flex:"1 1 140px" }}>
-                <label style={labelStyle}>Ton finden</label>
+                <label style={labelStyle}>Ton</label>
                 <select value={finderNote} onChange={e => setFinderNote(+e.target.value)} style={selectStyle}>
                   {NOTES.map((_, i) => <option key={i} value={i}>{displayName(i)}</option>)}
                 </select>
@@ -838,33 +722,19 @@ export default function App() {
               <span style={{ color:MUTED, letterSpacing:"0.03em" }}>{SCALES[selectedScale].map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
             </span>}
 
-            {mode === "caged" && <span>
-              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)}</span>
-              <span style={{ color:MUTED }}> · {cagedShape}-Form</span>
-              {cagedData && <span style={{ color:RULE }}> · Bund {cagedData.minFret}–{cagedData.maxFret}</span>}
-              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
-              <span style={{ color:MUTED }}>{[0,4,7].map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
-            </span>}
-
-            {mode === "triads" && <span>
-              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)} {triadType}</span>
-              <span style={{ color:MUTED }}> · {TRIAD_INVERSIONS[triadInversion]}</span>
-              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
-              <span style={{ color:MUTED }}>{triadIntervals.map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
-            </span>}
-
-            {mode === "intervals" && <span>
-              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)}</span>
-              <span style={{ color:MUTED, margin:"0 8px" }}>→</span>
-              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:INTERVAL_COLORS[intervalSemitones] }}>{displayName((rootNote+intervalSemitones)%12)}</span>
-              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
-              <span style={{ color:MUTED }}>{selectedInterval}</span>
-            </span>}
-
             {mode === "finder" && <span>
               <span style={{ color:MUTED }}>Alle </span>
               <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(finderNote)}</span>
               <span style={{ color:MUTED }}> auf dem Griffbrett</span>
+            </span>}
+
+            {mode === "quiz" && <span>
+              {quizAnswer === null
+                ? <span style={{ color:MUTED }}>Welche Note ist das?</span>
+                : quizAnswer === quizTarget?.noteIdx
+                  ? <span style={{ color:"#2ecc71", fontWeight:400 }}>Richtig — {displayName(quizTarget.noteIdx)}</span>
+                  : <span style={{ color:ACCENT, fontWeight:400 }}>Falsch — es war {quizTarget ? displayName(quizTarget.noteIdx) : "?"}</span>
+              }
             </span>}
 
             {mode === "chords" && chordVoicingData && <span>
@@ -876,8 +746,8 @@ export default function App() {
           </div>
 
           {/* ── Fretboard ──────────────────────────────────────────────── */}
-          <div style={{ overflowX:"auto", paddingBottom:4 }}>
-            <div style={{ minWidth:totalWidth+40, position:"relative" }}>
+          <div style={{ overflowX:"auto", paddingBottom:4, direction: leftHanded ? "rtl" : "ltr" }}>
+            <div style={{ minWidth:totalWidth+40, position:"relative", direction:"ltr" }}>
 
               {/* Fret numbers */}
               <div style={{ display:"flex", marginLeft:30, marginBottom:4 }}>
@@ -904,7 +774,7 @@ export default function App() {
                 </div>
 
                 {/* Strings */}
-                {TUNING.map((_, s) => (
+                {activeTuning.map((_, s) => (
                   <div key={s} style={{ display:"flex", alignItems:"center", height:36 }}>
                     <div style={{ width:30, textAlign:"center", fontSize:"0.625rem", fontWeight:400, color:"#b5b1aa", flexShrink:0, zIndex:3, letterSpacing:"0.05em" }}>
                       {STRING_NAMES[s]}
@@ -949,7 +819,7 @@ export default function App() {
                               fontSize:"0.5rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
                               zIndex:2, position:"relative",
                             }}>
-                              {NOTES[getNoteAt(s,f)]}
+                              {NOTES[(activeTuning[s]+f)%12]}
                             </div>
                           ) : null}
                         </div>
@@ -962,31 +832,40 @@ export default function App() {
               {/* ── Legends ──────────────────────────────────────────────── */}
 
               {mode === "scales" && (
-                <div style={{ display:"flex", gap:4, marginTop:10, flexWrap:"wrap", justifyContent:"center" }}>
-                  {SCALES[selectedScale].map((interval, idx) => {
-                    const ni = (rootNote+interval)%12;
+                <>
+                  <div style={{ display:"flex", gap:4, marginTop:10, flexWrap:"wrap", justifyContent:"center" }}>
+                    {SCALES[selectedScale].map((interval, idx) => {
+                      const ni = (rootNote+interval)%12;
+                      return (
+                        <div key={idx} style={{ display:"flex", alignItems:"center", gap:5, borderRadius:2, padding:"3px 8px", fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.05em", background:CARD }}>
+                          <div style={{ width:14, height:14, borderRadius:"50%", background:idx===0?ACCENT:`${DEGREE_COLORS[idx]}18`, border:`1.5px solid ${idx===0?"#a33515":DEGREE_COLORS[idx]}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.5rem", fontWeight:400, color:idx===0?"#fff":DEGREE_COLORS[idx] }}>{idx+1}</div>
+                          <span style={{ color:"#5a5651" }}>{displayName(ni)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    const diatonic = getDiatonicChords(SCALES[selectedScale], rootNote);
+                    if (!diatonic) return null;
                     return (
-                      <div key={idx} style={{ display:"flex", alignItems:"center", gap:5, borderRadius:2, padding:"3px 8px", fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.05em", background:CARD }}>
-                        <div style={{ width:14, height:14, borderRadius:"50%", background:idx===0?ACCENT:`${DEGREE_COLORS[idx]}18`, border:`1.5px solid ${idx===0?"#a33515":DEGREE_COLORS[idx]}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.5rem", fontWeight:400, color:idx===0?"#fff":DEGREE_COLORS[idx] }}>{idx+1}</div>
-                        <span style={{ color:"#5a5651" }}>{displayName(ni)}</span>
+                      <div style={{ display:"flex", gap:4, marginTop:8, flexWrap:"wrap", justifyContent:"center" }}>
+                        {diatonic.map((ch, i) => (
+                          <button key={i} onClick={() => setRootNote(ch.root)} style={{
+                            display:"flex", alignItems:"center", gap:4, borderRadius:2, padding:"4px 9px",
+                            fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.04em",
+                            background:"transparent", cursor:"pointer", fontFamily:"'DM Mono','Menlo',monospace",
+                            color: ch.quality === "dim" ? MUTED : FG, transition:"all 0.12s",
+                          }}>
+                            <span style={{ color:DEGREE_COLORS[i], fontWeight:400 }}>{ROMAN[i]}{ch.quality==="dim"?"°":""}</span>
+                            <span style={{ color:MUTED, margin:"0 2px" }}>·</span>
+                            <span>{displayName(ch.root)}</span>
+                            <span style={{ color:MUTED, marginLeft:1 }}>{ch.quality}</span>
+                          </button>
+                        ))}
                       </div>
                     );
-                  })}
-                </div>
-              )}
-
-              {(mode === "caged" || mode === "triads") && (
-                <div style={{ display:"flex", gap:8, marginTop:10, justifyContent:"center" }}>
-                  {[["R",0],["3",1],["5",2]].map(([lbl, i]) => {
-                    const ivs = mode==="caged" ? [0,4,7] : triadIntervals;
-                    return (
-                      <div key={lbl} style={{ display:"flex", alignItems:"center", gap:6, borderRadius:2, padding:"3px 10px", fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.08em", background:CARD }}>
-                        <div style={{ width:10, height:10, borderRadius:"50%", background:CHORD_COLORS[i], flexShrink:0 }} />
-                        <span style={{ color:"#5a5651", textTransform:"uppercase" }}>{lbl} = {displayName((rootNote+ivs[i])%12)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                  })()}
+                </>
               )}
 
               {mode === "chords" && (
@@ -1008,31 +887,13 @@ export default function App() {
 
           {/* ── Bottom panels ──────────────────────────────────────────── */}
 
-          {mode === "intervals" && (
-            <div style={{ marginTop:14 }}>
-              <p style={sectionLabel}>Schnellwahl</p>
-              <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                {Object.entries(INTERVALS).map(([name, semi]) => (
-                  <button key={name} onClick={() => setSelectedInterval(name)} style={{
-                    padding:"5px 10px", border:`1px solid`, borderRadius:2, cursor:"pointer",
-                    fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-                    letterSpacing:"0.04em", transition:"all 0.15s",
-                    background:  selectedInterval===name ? INTERVAL_COLORS[semi] : "transparent",
-                    borderColor: selectedInterval===name ? INTERVAL_COLORS[semi] : RULE,
-                    color:       selectedInterval===name ? "#fff" : MUTED,
-                  }}>{name.match(/\((.+)\)/)?.[1]}</button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {mode === "finder" && (
             <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
               <p style={sectionLabel}>{displayName(finderNote)} – alle Positionen</p>
               <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                {TUNING.flatMap((_,sIdx) =>
-                  Array.from({length:FRET_COUNT+1},(_,f)=>({s:sIdx,f}))
-                    .filter(({s,f})=>getNoteAt(s,f)===finderNote)
+                {activeTuning.flatMap((_,sIdx) =>
+                  Array.from({length:activeFretCount+1},(_,f)=>({s:sIdx,f}))
+                    .filter(({s,f})=>(activeTuning[s]+f)%12===finderNote)
                 ).map(({s,f},i)=>(
                   <span key={i} style={{ padding:"3px 9px", background:ACCENT_SOFT, border:`1px solid ${ACCENT}30`, borderRadius:2, fontSize:"0.6875rem", color:ACCENT, fontWeight:400, letterSpacing:"0.04em" }}>
                     {STRING_NAMES[s]}{f===0?" leer":` Bund ${f}`}
@@ -1042,36 +903,39 @@ export default function App() {
             </div>
           )}
 
-          {mode === "triads" && (
+          {mode === "quiz" && (
             <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
-              <p style={sectionLabel}>Alle Lagen – {TRIAD_GROUP_LABELS[triadGroup]}</p>
-              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                {[0,1,2].map(inv => {
-                  const v = getTriadVoicing(rootNote, triadIntervals, inv, triadGroup);
-                  if (!v) return null;
-                  const active = triadInversion === inv;
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+                {quizChoices.map(ni => {
+                  const answered = quizAnswer !== null;
+                  const isCorrect = ni === quizTarget?.noteIdx;
+                  const isPicked  = ni === quizAnswer;
+                  let bg = "transparent", borderColor = RULE, color = FG;
+                  if (answered) {
+                    if (isCorrect) { bg = "#2ecc7118"; borderColor = "#2ecc71"; color = "#1a7a45"; }
+                    else if (isPicked) { bg = `${ACCENT}18`; borderColor = ACCENT; color = ACCENT; }
+                    else { color = MUTED; }
+                  }
                   return (
-                    <button key={inv} onClick={()=>setTriadInversion(inv)} style={{
-                      padding:"9px 14px", border:`1px solid`, borderRadius:2, cursor:"pointer",
-                      background:  active ? FG : "transparent",
-                      borderColor: active ? FG : RULE,
-                      textAlign:"left", transition:"all 0.15s", flex:"1 1 auto",
-                      fontFamily:"'DM Mono','Menlo',monospace",
+                    <button key={ni} onClick={() => handleQuizAnswer(ni)} disabled={answered} style={{
+                      flex:"1 1 80px", padding:"12px 8px", border:`1px solid ${borderColor}`, borderRadius:3,
+                      cursor: answered ? "default" : "pointer", background:bg, color, transition:"all 0.15s",
+                      fontSize:"0.9375rem", fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic",
+                      fontWeight:400,
                     }}>
-                      <div style={{ fontSize:"0.5625rem", fontWeight:400, color:active?"#888":MUTED, marginBottom:4, textTransform:"uppercase", letterSpacing:"0.12em" }}>{TRIAD_INVERSIONS[inv]}</div>
-                      <div style={{ display:"flex", gap:0 }}>
-                        {v.map((n,ni)=>(
-                          <span key={ni} style={{ fontSize:"0.75rem", fontWeight:400 }}>
-                            <span style={{ color: active ? CHORD_COLORS[n.d] : CHORD_COLORS[n.d]+"66" }}>
-                              {STRING_NAMES[n.s]}{n.f}
-                            </span>
-                            {ni < v.length-1 && <span style={{ color:active?"#666":RULE, fontWeight:300 }}> – </span>}
-                          </span>
-                        ))}
-                      </div>
+                      {displayName(ni)}
                     </button>
                   );
                 })}
+              </div>
+              <div style={{ display:"flex", gap:12, alignItems:"center", fontSize:"0.6875rem", color:MUTED, flexWrap:"wrap" }}>
+                <span>Richtig: <span style={{ color:FG, fontWeight:400 }}>{quizScore.correct}/{quizScore.total}</span></span>
+                {quizStreak >= 2 && <span>Streak: <span style={{ color:ACCENT, fontWeight:400 }}>{quizStreak}</span></span>}
+                <button onClick={newQuestion} style={{
+                  marginLeft:"auto", padding:"5px 12px", border:`1px solid ${RULE}`, borderRadius:2,
+                  cursor:"pointer", background:"transparent", color:MUTED, fontSize:"0.6875rem",
+                  fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.06em",
+                }}>Neue Frage</button>
               </div>
             </div>
           )}
