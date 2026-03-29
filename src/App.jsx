@@ -60,6 +60,47 @@ const TRIAD_INVERSIONS = ["Grundst.", "1. Umk.", "2. Umk."];
 const TRIAD_GROUPS = [[2,1,0], [3,2,1], [4,3,2], [5,4,3]];
 const TRIAD_GROUP_LABELS = ["G–B–e", "D–G–B", "A–D–G", "E–A–D"];
 
+// ─── Chord Voicing Templates ───────────────────────────────────────────────────
+
+const CHORD_VOICING_TEMPLATES = {
+  "Dur": [
+    { name:"E-Form",  rootStr:5, relFrets:[0,2,2,1,0,0]    },
+    { name:"A-Form",  rootStr:4, relFrets:[-1,0,2,2,2,0]   },
+    { name:"D-Form",  rootStr:3, relFrets:[-1,-1,0,2,3,2]  },
+  ],
+  "Moll": [
+    { name:"Em-Form", rootStr:5, relFrets:[0,2,2,0,0,0]    },
+    { name:"Am-Form", rootStr:4, relFrets:[-1,0,2,2,1,0]   },
+    { name:"Dm-Form", rootStr:3, relFrets:[-1,-1,0,2,3,1]  },
+  ],
+  "Dom7": [
+    { name:"E7-Form", rootStr:5, relFrets:[0,2,0,1,0,0]    },
+    { name:"A7-Form", rootStr:4, relFrets:[-1,0,2,0,2,0]   },
+  ],
+  "Maj7": [
+    { name:"Emaj7",   rootStr:5, relFrets:[0,2,1,1,0,0]    },
+    { name:"Amaj7",   rootStr:4, relFrets:[-1,0,2,1,2,0]   },
+  ],
+  "Moll7": [
+    { name:"Em7-Form",rootStr:5, relFrets:[0,2,0,0,0,0]    },
+    { name:"Am7-Form",rootStr:4, relFrets:[-1,0,2,0,1,0]   },
+  ],
+};
+
+const CHORD_TYPE_INTERVALS = {
+  "Dur":   [0,4,7],
+  "Moll":  [0,3,7],
+  "Dom7":  [0,4,7,10],
+  "Maj7":  [0,4,7,11],
+  "Moll7": [0,3,7,10],
+};
+
+function getVoicingFrets(rootNote, template) {
+  const { rootStr, relFrets } = template;
+  const rootFret = ((rootNote - TUNING[rootStr]) % 12 + 12) % 12 || 12;
+  return relFrets.map(f => f === -1 ? -1 : rootFret + f);
+}
+
 const GUITAR_STRING_FREQS = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -220,6 +261,18 @@ export default function App() {
   const [selectedInterval, setSelectedInterval] = useState("Reine Quinte (P5)");
   const [finderNote, setFinderNote]             = useState(0);
 
+  const [chordType, setChordType]           = useState("Dur");
+  const [chordVoicingIdx, setChordVoicingIdx] = useState(0);
+
+  const [timingActive, setTimingActive] = useState(false);
+  const [timingHits, setTimingHits]     = useState([]);
+  const [timingError, setTimingError]   = useState(null);
+  const timingCtxRef    = useRef(null);
+  const timingStreamRef = useRef(null);
+  const timingRafRef    = useRef(null);
+  const beatTimesRef    = useRef([]);
+  const lastOnsetRef    = useRef(0);
+
   const [tunerActive, setTunerActive] = useState(false);
   const [tunerNote, setTunerNote]     = useState(null);
   const [tunerError, setTunerError]   = useState(null);
@@ -346,18 +399,84 @@ export default function App() {
       scheduleClick(nextNoteTimeRef.current, beat === 0);
       const delay = Math.max(0, (nextNoteTimeRef.current - ctx.currentTime) * 1000);
       const b = beat;
+      const beatWallTime = performance.now() + delay;
+      beatTimesRef.current.push(beatWallTime);
+      if (beatTimesRef.current.length > 32) beatTimesRef.current.shift();
       setTimeout(() => setCurrentBeat(b), delay);
       nextNoteTimeRef.current += 60 / bpmRef.current;
       currentBeatRef.current++;
     }
   }, [scheduleClick]);
 
+  const stopTiming = useCallback(() => {
+    if (timingRafRef.current) cancelAnimationFrame(timingRafRef.current);
+    if (timingStreamRef.current) timingStreamRef.current.getTracks().forEach(t => t.stop());
+    if (timingCtxRef.current) timingCtxRef.current.close();
+    timingCtxRef.current = timingStreamRef.current = timingRafRef.current = null;
+    lastOnsetRef.current = 0;
+    setTimingActive(false);
+    setTimingHits([]);
+    setTimingError(null);
+  }, []);
+
+  const startTiming = useCallback(async () => {
+    setTimingError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+      });
+      timingStreamRef.current = stream;
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      timingCtxRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      const gain = ctx.createGain();
+      gain.gain.value = 2;
+      ctx.createMediaStreamSource(stream).connect(gain);
+      gain.connect(analyser);
+      setTimingActive(true);
+
+      const buf = new Float32Array(analyser.fftSize);
+      const THRESHOLD = 0.035;
+      const COOLDOWN  = 300;
+
+      const tick = () => {
+        timingRafRef.current = requestAnimationFrame(tick);
+        analyser.getFloatTimeDomainData(buf);
+        let rms = 0;
+        for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+        rms = Math.sqrt(rms / buf.length);
+        const now = performance.now();
+        if (rms < THRESHOLD || now - lastOnsetRef.current < COOLDOWN) return;
+        lastOnsetRef.current = now;
+        const beats = beatTimesRef.current;
+        if (beats.length === 0) return;
+        let nearestDelta = Infinity;
+        for (const bt of beats) {
+          const d = now - bt;
+          if (Math.abs(d) < Math.abs(nearestDelta)) nearestDelta = d;
+        }
+        if (Math.abs(nearestDelta) > 2000) return;
+        const quality = Math.abs(nearestDelta) < 50 ? "gut" : Math.abs(nearestDelta) < 100 ? "knapp" : "daneben";
+        setTimingHits(prev => {
+          const next = [...prev, { delta: Math.round(nearestDelta), quality }];
+          return next.length > 8 ? next.slice(-8) : next;
+        });
+      };
+      timingRafRef.current = requestAnimationFrame(tick);
+    } catch {
+      setTimingError("Mikrofon benötigt für Timing-Check.");
+    }
+  }, []);
+
   const stopMetronome = useCallback(() => {
     if (schedulerRef.current) clearInterval(schedulerRef.current);
     schedulerRef.current = null;
+    beatTimesRef.current = [];
     setMetroPlaying(false);
     setCurrentBeat(-1);
-  }, []);
+    stopTiming();
+  }, [stopTiming]);
 
   const startMetronome = useCallback(async () => {
     if (!metroCtxRef.current || metroCtxRef.current.state === "closed") {
@@ -387,6 +506,7 @@ export default function App() {
   }, []);
 
   useEffect(() => () => stopMetronome(), [stopMetronome]);
+  useEffect(() => () => stopTiming(), [stopTiming]);
 
   // ─── Computed ─────────────────────────────────────────────────────────────
 
@@ -414,6 +534,16 @@ export default function App() {
   const voicingKeys = useMemo(() =>
     triadVoicing ? new Set(triadVoicing.map(n => `${n.s}-${n.f}`)) : new Set(),
   [triadVoicing]);
+
+  const chordVoicingData = useMemo(() => {
+    if (mode !== "chords") return null;
+    const templates = CHORD_VOICING_TEMPLATES[chordType] || [];
+    const idx = Math.min(chordVoicingIdx, templates.length - 1);
+    const template = templates[idx];
+    if (!template) return null;
+    const absoluteFrets = getVoicingFrets(rootNote, template);
+    return { template, absoluteFrets };
+  }, [mode, chordType, chordVoicingIdx, rootNote]);
 
   // ─── Cell info ────────────────────────────────────────────────────────────
 
@@ -481,8 +611,28 @@ export default function App() {
       return { active: true, noteName, color: "#fff", bg: ACCENT, border: "#a33515", isRoot: false };
     }
 
+    if (mode === "chords") {
+      if (!chordVoicingData) return { active: false, noteName };
+      const { absoluteFrets } = chordVoicingData;
+      const stringFret = absoluteFrets[5 - s];
+      if (stringFret === -1 || stringFret !== f) return { active: false, noteName };
+      const intervals = CHORD_TYPE_INTERVALS[chordType] || [0,4,7];
+      const degIdx = intervals.findIndex(i => (rootNote + i) % 12 === noteIdx);
+      const degColors = [ACCENT, "#e67e22", "#2ecc71", "#3498db"];
+      const col = degColors[Math.max(0, degIdx)];
+      const labels = ["R","3","5","7"];
+      return {
+        active: true, noteName,
+        color:  degIdx === 0 ? "#fff" : col,
+        bg:     degIdx === 0 ? ACCENT : `${col}28`,
+        border: col,
+        isRoot: degIdx === 0,
+        label:  labels[degIdx] ?? "",
+      };
+    }
+
     return { active: false, noteName };
-  }, [mode, scaleNotes, rootNote, highlightRoot, cagedData, triadIntervals, voicingKeys, intervalSemitones, selectedInterval, finderNote]);
+  }, [mode, scaleNotes, rootNote, highlightRoot, cagedData, triadIntervals, voicingKeys, intervalSemitones, selectedInterval, finderNote, chordVoicingData, chordType]);
 
   const fretWidths = useMemo(() => {
     const w = [];
@@ -493,18 +643,21 @@ export default function App() {
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
 
-  const THEORY_TABS = [
+  const CAT_LABELS = { theorie: "Schule", praxis: "Studio" };
+
+  const SCHULE_TABS = [
     { id: "scales",    label: "Skalen"    },
     { id: "caged",     label: "CAGED"     },
     { id: "triads",    label: "Triaden"   },
     { id: "intervals", label: "Intervall" },
     { id: "finder",    label: "Finder"    },
   ];
-  const PRAXIS_TABS = [
+  const STUDIO_TABS = [
     { id: "tuner",     label: "Stimmgerät" },
     { id: "metronome", label: "Metronom"   },
+    { id: "chords",    label: "Akkorde"    },
   ];
-  const currentTabs = category === "theorie" ? THEORY_TABS : PRAXIS_TABS;
+  const currentTabs = category === "theorie" ? SCHULE_TABS : STUDIO_TABS;
 
   const switchCategory = (cat) => {
     if (cat === category) return;
@@ -533,7 +686,7 @@ export default function App() {
               fontFamily:"'DM Mono','Menlo',monospace",
               letterSpacing:"0.15em", textTransform:"uppercase", transition:"all 0.15s",
               color: category===cat ? FG : MUTED,
-            }}>{cat}</button>
+            }}>{CAT_LABELS[cat]}</button>
           ))}
         </div>
 
@@ -563,11 +716,13 @@ export default function App() {
             bpm={bpm} setBpm={setBpm} beatsPerBar={beatsPerBar} setBeatsPerBar={setBeatsPerBar}
             isPlaying={metroPlaying} currentBeat={currentBeat}
             onStart={startMetronome} onStop={stopMetronome} onTap={handleTap}
+            timingActive={timingActive} timingHits={timingHits} timingError={timingError}
+            onToggleTiming={() => timingActive ? stopTiming() : startTiming()}
           />
         )}
 
         {/* ── Fretboard modes ────────────────────────────────────────────── */}
-        {category === "theorie" && (<>
+        {(category === "theorie" || mode === "chords") && (<>
 
           {/* Controls */}
           <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"flex-end" }}>
@@ -664,6 +819,15 @@ export default function App() {
                 </select>
               </div>
             )}
+
+            {mode === "chords" && (
+              <div style={{ flex:"1 1 130px" }}>
+                <label style={labelStyle}>Akkordtyp</label>
+                <select value={chordType} onChange={e => { setChordType(e.target.value); setChordVoicingIdx(0); }} style={selectStyle}>
+                  {Object.keys(CHORD_VOICING_TEMPLATES).map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Info strip */}
@@ -701,6 +865,13 @@ export default function App() {
               <span style={{ color:MUTED }}>Alle </span>
               <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(finderNote)}</span>
               <span style={{ color:MUTED }}> auf dem Griffbrett</span>
+            </span>}
+
+            {mode === "chords" && chordVoicingData && <span>
+              <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(rootNote)} {chordType}</span>
+              <span style={{ color:MUTED }}> · {chordVoicingData.template.name}</span>
+              <span style={{ color:RULE, margin:"0 10px" }}>—</span>
+              <span style={{ color:MUTED }}>{(CHORD_TYPE_INTERVALS[chordType]||[]).map(i => displayName((rootNote+i)%12)).join("  ·  ")}</span>
             </span>}
           </div>
 
@@ -817,6 +988,21 @@ export default function App() {
                   })}
                 </div>
               )}
+
+              {mode === "chords" && (
+                <div style={{ display:"flex", gap:8, marginTop:10, justifyContent:"center", flexWrap:"wrap" }}>
+                  {(CHORD_TYPE_INTERVALS[chordType]||[]).map((iv, i) => {
+                    const degColors = [ACCENT, "#e67e22", "#2ecc71", "#3498db"];
+                    const labels = ["R","3","5","7"];
+                    return (
+                      <div key={i} style={{ display:"flex", alignItems:"center", gap:6, borderRadius:2, padding:"3px 10px", fontSize:"0.625rem", border:`1px solid ${RULE}`, fontWeight:400, letterSpacing:"0.08em", background:CARD }}>
+                        <div style={{ width:10, height:10, borderRadius:"50%", background:degColors[i], flexShrink:0 }} />
+                        <span style={{ color:"#5a5651", textTransform:"uppercase" }}>{labels[i]} = {displayName((rootNote+iv)%12)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -886,6 +1072,21 @@ export default function App() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {mode === "chords" && (
+            <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
+              <p style={sectionLabel}>Griffvarianten — {displayName(rootNote)} {chordType}</p>
+              <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
+                {(CHORD_VOICING_TEMPLATES[chordType] || []).map((tmpl, i) => (
+                  <ChordDiagram
+                    key={i} rootNote={rootNote} template={tmpl}
+                    isActive={chordVoicingIdx === i}
+                    onClick={() => setChordVoicingIdx(i)}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -981,12 +1182,22 @@ function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner 
 
 // ─── Metronome Panel ──────────────────────────────────────────────────────────
 
-function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, currentBeat, onStart, onStop, onTap }) {
+function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, currentBeat, onStart, onStop, onTap, timingActive, timingHits, timingError, onToggleTiming }) {
+  const [bpmEditing, setBpmEditing] = useState(false);
   const btnBase = {
     border:`1px solid ${RULE}`, borderRadius:3, cursor:"pointer",
     background:"transparent", fontFamily:"'DM Mono','Menlo',monospace",
     fontWeight:400, letterSpacing:"0.06em", transition:"all 0.15s", color:FG,
   };
+  const bigTextStyle = {
+    fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400,
+    fontSize:"clamp(3.5rem,12vw,5rem)", lineHeight:1, letterSpacing:"-0.03em",
+    minWidth:"3.5ch", textAlign:"center", transition:"color 0.2s",
+  };
+  const timingScore = timingHits.length > 0
+    ? Math.round(timingHits.filter(h => h.quality === "gut").length / timingHits.length * 100)
+    : null;
+  const timingColors = { gut:"#2ecc71", knapp:"#e67e22", daneben:ACCENT };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
@@ -997,9 +1208,18 @@ function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, c
 
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:20 }}>
           <button onPointerDown={() => setBpm(b => Math.max(40, b - 1))} style={{ ...btnBase, padding:"8px 16px", fontSize:"1.25rem", lineHeight:1 }}>−</button>
-          <div style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontWeight:400, fontSize:"clamp(3.5rem,12vw,5rem)", lineHeight:1, letterSpacing:"-0.03em", minWidth:"3.5ch", textAlign:"center", color: isPlaying ? ACCENT : FG, transition:"color 0.2s" }}>
-            {bpm}
-          </div>
+          {bpmEditing ? (
+            <input
+              type="number" autoFocus defaultValue={bpm} min={40} max={240}
+              onBlur={e => { setBpm(Math.round(Math.min(240, Math.max(40, +e.target.value || bpm)))); setBpmEditing(false); }}
+              onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setBpmEditing(false); }}
+              style={{ ...bigTextStyle, color: isPlaying ? ACCENT : FG, background:"transparent", border:"none", outline:`1px solid ${RULE}`, borderRadius:2, padding:"0 4px", width:"4ch" }}
+            />
+          ) : (
+            <div onClick={() => setBpmEditing(true)} title="Klicken zum Eingeben" style={{ ...bigTextStyle, color: isPlaying ? ACCENT : FG, cursor:"text" }}>
+              {bpm}
+            </div>
+          )}
           <button onPointerDown={() => setBpm(b => Math.min(240, b + 1))} style={{ ...btnBase, padding:"8px 16px", fontSize:"1.25rem", lineHeight:1 }}>+</button>
         </div>
 
@@ -1015,6 +1235,22 @@ function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, c
             }} />
           ))}
         </div>
+
+        {/* Timing hit dots */}
+        {timingActive && timingHits.length > 0 && (
+          <div style={{ marginTop:16, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+            <div style={{ display:"flex", gap:6, justifyContent:"center" }}>
+              {timingHits.map((h, i) => (
+                <div key={i} style={{ width:10, height:10, borderRadius:"50%", background:timingColors[h.quality], transition:"background 0.1s" }} title={`${h.delta > 0 ? "+" : ""}${h.delta}ms`} />
+              ))}
+            </div>
+            {timingScore !== null && (
+              <div style={{ fontSize:"0.6875rem", fontWeight:400, color: timingScore >= 80 ? "#2ecc71" : timingScore >= 50 ? "#e67e22" : ACCENT, letterSpacing:"0.06em" }}>
+                {timingScore}%
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Controls row */}
@@ -1030,17 +1266,95 @@ function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, c
         </button>
       </div>
 
-      {/* Play / Stop */}
-      <button onClick={isPlaying ? onStop : onStart} style={{
-        padding:"12px 24px", border:`1px solid`, borderRadius:3, cursor:"pointer",
-        fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-        letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.2s",
-        background: isPlaying ? "transparent" : FG,
-        borderColor: isPlaying ? RULE : FG,
-        color:       isPlaying ? MUTED : BG,
-      }}>
-        {isPlaying ? "Stoppen" : "Starten"}
-      </button>
+      {/* Play / Stop + Timing toggle */}
+      <div style={{ display:"flex", gap:8 }}>
+        <button onClick={isPlaying ? onStop : onStart} style={{
+          flex:2, padding:"12px 24px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+          fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+          letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.2s",
+          background: isPlaying ? "transparent" : FG,
+          borderColor: isPlaying ? RULE : FG,
+          color:       isPlaying ? MUTED : BG,
+        }}>
+          {isPlaying ? "Stoppen" : "Starten"}
+        </button>
+        {isPlaying && (
+          <button onClick={onToggleTiming} style={{
+            flex:1, padding:"12px 14px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+            fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+            letterSpacing:"0.08em", textTransform:"uppercase", transition:"all 0.2s",
+            background: timingActive ? FG : "transparent",
+            borderColor: timingActive ? FG : RULE,
+            color:       timingActive ? BG : MUTED,
+          }}>
+            {timingActive ? "● Timing" : "Timing"}
+          </button>
+        )}
+      </div>
+
+      {timingError && <div style={{ color:ACCENT, fontSize:"0.75rem", textAlign:"center", fontWeight:400, letterSpacing:"0.04em" }}>{timingError}</div>}
+    </div>
+  );
+}
+
+// ─── Chord Diagram ────────────────────────────────────────────────────────────
+
+function ChordDiagram({ rootNote, template, isActive, onClick }) {
+  const frets = getVoicingFrets(rootNote, template);
+  const activeFrets = frets.filter(f => f !== -1);
+  const minFret = activeFrets.length ? Math.min(...activeFrets) : 1;
+  const maxFret = activeFrets.length ? Math.max(...activeFrets) : 5;
+  const startFret = minFret <= 1 ? 1 : minFret;
+  const FRETS = 5;
+  const SS = 16; // string spacing
+  const FS = 16; // fret spacing
+  const PL = 18, PT = 24, PR = 8, PB = 16;
+  const W = 5 * SS + PL + PR;
+  const H = FRETS * FS + PT + PB;
+
+  return (
+    <div onClick={onClick} style={{
+      cursor:"pointer", flexShrink:0, textAlign:"center",
+      border:`1px solid`, borderRadius:3, padding:"10px 8px 8px",
+      background: isActive ? ACCENT_SOFT : CARD,
+      borderColor: isActive ? ACCENT : RULE,
+      transition:"all 0.15s",
+    }}>
+      <svg width={W} height={H} style={{ display:"block", margin:"0 auto" }}>
+        {/* Nut or fret number */}
+        {startFret === 1
+          ? <rect x={PL} y={PT - 3} width={5 * SS} height={3} fill={FG} rx={1} />
+          : <text x={PL - 4} y={PT + FS / 2 + 4} textAnchor="end" fontSize={9} fill={MUTED} fontFamily="'DM Mono',monospace">{startFret}</text>
+        }
+        {/* Fret lines */}
+        {Array.from({ length: FRETS + 1 }, (_, i) => (
+          <line key={i} x1={PL} x2={PL + 5 * SS} y1={PT + i * FS} y2={PT + i * FS} stroke={RULE} strokeWidth={1} />
+        ))}
+        {/* String lines */}
+        {Array.from({ length: 6 }, (_, i) => (
+          <line key={i} x1={PL + i * SS} x2={PL + i * SS} y1={PT} y2={PT + FRETS * FS} stroke={RULE} strokeWidth={1} />
+        ))}
+        {/* Dots and mute/open markers */}
+        {frets.map((f, strIdx) => {
+          const x = PL + (5 - strIdx) * SS;
+          if (f === -1) return (
+            <text key={strIdx} x={x} y={PT - 6} textAnchor="middle" fontSize={10} fill={MUTED} fontFamily="'DM Mono',monospace">×</text>
+          );
+          if (f === 0) return (
+            <circle key={strIdx} cx={x} cy={PT - 8} r={4} fill="none" stroke={MUTED} strokeWidth={1} />
+          );
+          const row = f - startFret + 1;
+          if (row < 1 || row > FRETS) return null;
+          const y = PT + (row - 0.5) * FS;
+          const isRoot = strIdx === template.rootStr;
+          return (
+            <circle key={strIdx} cx={x} cy={y} r={6} fill={isRoot ? ACCENT : FG} />
+          );
+        })}
+      </svg>
+      <div style={{ fontSize:"0.5625rem", color: isActive ? ACCENT : MUTED, fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.06em", marginTop:4, textTransform:"uppercase" }}>
+        {template.name}
+      </div>
     </div>
   );
 }
