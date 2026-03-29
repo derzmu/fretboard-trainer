@@ -70,26 +70,34 @@ function getDiatonicChords(scale, rootNote) {
 
 const CHORD_VOICING_TEMPLATES = {
   "Dur": [
-    { name:"E-Form",  rootStr:5, relFrets:[0,2,2,1,0,0]    },
-    { name:"A-Form",  rootStr:4, relFrets:[-1,0,2,2,2,0]   },
-    { name:"D-Form",  rootStr:3, relFrets:[-1,-1,0,2,3,2]  },
+    { name:"E-Form",  rootStr:5, nativeRoot:4, relFrets:[0,2,2,1,0,0]       },
+    { name:"A-Form",  rootStr:4, nativeRoot:9, relFrets:[-1,0,2,2,2,0]      },
+    { name:"D-Form",  rootStr:3, nativeRoot:2, relFrets:[-1,-1,0,2,3,2]     },
+    { name:"G-Form",  rootStr:5, nativeRoot:7, relFrets:[0,-3,-3,-3,-1,0]   },
+    { name:"C-Form",  rootStr:4, nativeRoot:0, relFrets:[-1,0,-1,-3,-2,-3]  },
   ],
   "Moll": [
-    { name:"Em-Form", rootStr:5, relFrets:[0,2,2,0,0,0]    },
-    { name:"Am-Form", rootStr:4, relFrets:[-1,0,2,2,1,0]   },
-    { name:"Dm-Form", rootStr:3, relFrets:[-1,-1,0,2,3,1]  },
+    { name:"Em-Form", rootStr:5, nativeRoot:4, relFrets:[0,2,2,0,0,0]       },
+    { name:"Am-Form", rootStr:4, nativeRoot:9, relFrets:[-1,0,2,2,1,0]      },
+    { name:"Dm-Form", rootStr:3, nativeRoot:2, relFrets:[-1,-1,0,2,3,1]     },
+    { name:"Gm-Form", rootStr:5, nativeRoot:7, relFrets:[0,0,-3,-3,-2,0]    },
   ],
   "Dom7": [
-    { name:"E7-Form", rootStr:5, relFrets:[0,2,0,1,0,0]    },
-    { name:"A7-Form", rootStr:4, relFrets:[-1,0,2,0,2,0]   },
+    { name:"E7-Form", rootStr:5, nativeRoot:4, relFrets:[0,2,0,1,0,0]       },
+    { name:"A7-Form", rootStr:4, nativeRoot:9, relFrets:[-1,0,2,0,2,0]      },
+    { name:"G7-Form", rootStr:5, nativeRoot:7, relFrets:[-2,-3,-3,-3,-1,0]  },
+    { name:"C7-Form", rootStr:4, nativeRoot:0, relFrets:[-3,-2,0,-1,0,-1]   },
   ],
   "Maj7": [
-    { name:"Emaj7",   rootStr:5, relFrets:[0,2,1,1,0,0]    },
-    { name:"Amaj7",   rootStr:4, relFrets:[-1,0,2,1,2,0]   },
+    { name:"Emaj7",   rootStr:5, nativeRoot:4, relFrets:[0,2,1,1,0,0]       },
+    { name:"Amaj7",   rootStr:4, nativeRoot:9, relFrets:[-1,0,2,1,2,0]      },
+    { name:"Gmaj7",   rootStr:5, nativeRoot:7, relFrets:[-1,-3,-3,-3,-1,0]  },
+    { name:"Cmaj7",   rootStr:4, nativeRoot:0, relFrets:[-3,-3,-3,-1,0,-1]  },
   ],
   "Moll7": [
-    { name:"Em7-Form",rootStr:5, relFrets:[0,2,0,0,0,0]    },
-    { name:"Am7-Form",rootStr:4, relFrets:[-1,0,2,0,1,0]   },
+    { name:"Em7-Form",rootStr:5, nativeRoot:4, relFrets:[0,2,0,0,0,0]       },
+    { name:"Am7-Form",rootStr:4, nativeRoot:9, relFrets:[-1,0,2,0,1,0]      },
+    { name:"Gm7-Form",rootStr:5, nativeRoot:7, relFrets:[-2,0,-3,-3,-2,0]   },
   ],
 };
 
@@ -103,8 +111,13 @@ const CHORD_TYPE_INTERVALS = {
 
 function getVoicingFrets(rootNote, template) {
   const { rootStr, relFrets } = template;
-  const rootFret = ((rootNote - TUNING[rootStr]) % 12 + 12) % 12 || 12;
-  return relFrets.map(f => f === -1 ? -1 : rootFret + f);
+  let rootFret = ((rootNote - TUNING[rootStr]) % 12 + 12) % 12 || 12;
+  let frets = relFrets.map(f => f === -1 ? -1 : rootFret + f);
+  if (frets.some(f => f !== -1 && f < 0)) {
+    rootFret += 12;
+    frets = relFrets.map(f => f === -1 ? -1 : rootFret + f);
+  }
+  return frets;
 }
 
 const GUITAR_STRING_FREQS = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63];
@@ -191,15 +204,6 @@ export default function App() {
   const [settings, setSettings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("fbt-settings")) || {}; } catch { return {}; }
   });
-
-  const [timingActive, setTimingActive] = useState(false);
-  const [timingHits, setTimingHits]     = useState([]);
-  const [timingError, setTimingError]   = useState(null);
-  const timingCtxRef    = useRef(null);
-  const timingStreamRef = useRef(null);
-  const timingRafRef    = useRef(null);
-  const beatTimesRef    = useRef([]);
-  const lastOnsetRef    = useRef(0);
 
   const [tunerActive, setTunerActive] = useState(false);
   const [tunerNote, setTunerNote]     = useState(null);
@@ -327,84 +331,18 @@ export default function App() {
       scheduleClick(nextNoteTimeRef.current, beat === 0);
       const delay = Math.max(0, (nextNoteTimeRef.current - ctx.currentTime) * 1000);
       const b = beat;
-      const beatWallTime = performance.now() + delay;
-      beatTimesRef.current.push(beatWallTime);
-      if (beatTimesRef.current.length > 32) beatTimesRef.current.shift();
       setTimeout(() => setCurrentBeat(b), delay);
       nextNoteTimeRef.current += 60 / bpmRef.current;
       currentBeatRef.current++;
     }
   }, [scheduleClick]);
 
-  const stopTiming = useCallback(() => {
-    if (timingRafRef.current) cancelAnimationFrame(timingRafRef.current);
-    if (timingStreamRef.current) timingStreamRef.current.getTracks().forEach(t => t.stop());
-    if (timingCtxRef.current) timingCtxRef.current.close();
-    timingCtxRef.current = timingStreamRef.current = timingRafRef.current = null;
-    lastOnsetRef.current = 0;
-    setTimingActive(false);
-    setTimingHits([]);
-    setTimingError(null);
-  }, []);
-
-  const startTiming = useCallback(async () => {
-    setTimingError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
-      });
-      timingStreamRef.current = stream;
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      timingCtxRef.current = ctx;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      const gain = ctx.createGain();
-      gain.gain.value = 2;
-      ctx.createMediaStreamSource(stream).connect(gain);
-      gain.connect(analyser);
-      setTimingActive(true);
-
-      const buf = new Float32Array(analyser.fftSize);
-      const THRESHOLD = 0.035;
-      const COOLDOWN  = 300;
-
-      const tick = () => {
-        timingRafRef.current = requestAnimationFrame(tick);
-        analyser.getFloatTimeDomainData(buf);
-        let rms = 0;
-        for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
-        rms = Math.sqrt(rms / buf.length);
-        const now = performance.now();
-        if (rms < THRESHOLD || now - lastOnsetRef.current < COOLDOWN) return;
-        lastOnsetRef.current = now;
-        const beats = beatTimesRef.current;
-        if (beats.length === 0) return;
-        let nearestDelta = Infinity;
-        for (const bt of beats) {
-          const d = now - bt;
-          if (Math.abs(d) < Math.abs(nearestDelta)) nearestDelta = d;
-        }
-        if (Math.abs(nearestDelta) > 2000) return;
-        const quality = Math.abs(nearestDelta) < 50 ? "gut" : Math.abs(nearestDelta) < 100 ? "knapp" : "daneben";
-        setTimingHits(prev => {
-          const next = [...prev, { delta: Math.round(nearestDelta), quality }];
-          return next.length > 8 ? next.slice(-8) : next;
-        });
-      };
-      timingRafRef.current = requestAnimationFrame(tick);
-    } catch {
-      setTimingError("Mikrofon benötigt für Timing-Check.");
-    }
-  }, []);
-
   const stopMetronome = useCallback(() => {
     if (schedulerRef.current) clearInterval(schedulerRef.current);
     schedulerRef.current = null;
-    beatTimesRef.current = [];
     setMetroPlaying(false);
     setCurrentBeat(-1);
-    stopTiming();
-  }, [stopTiming]);
+  }, []);
 
   const startMetronome = useCallback(async () => {
     if (!metroCtxRef.current || metroCtxRef.current.state === "closed") {
@@ -434,7 +372,6 @@ export default function App() {
   }, []);
 
   useEffect(() => () => stopMetronome(), [stopMetronome]);
-  useEffect(() => () => stopTiming(), [stopTiming]);
 
   // ─── Settings ─────────────────────────────────────────────────────────────
 
@@ -475,21 +412,33 @@ export default function App() {
     if (mode === "quiz" && !quizTarget) newQuestion();
   }, [mode, quizTarget, newQuestion]);
 
+  useEffect(() => {
+    if (mode === "chords") setChordVoicingIdx(0);
+  }, [rootNote, mode]);
+
   // ─── Computed ─────────────────────────────────────────────────────────────
 
   const scaleNotes = useMemo(() =>
     mode === "scales" ? SCALES[selectedScale].map(i => (rootNote + i) % 12) : [],
   [mode, rootNote, selectedScale]);
 
+  const sortedChordTemplates = useMemo(() => {
+    const templates = CHORD_VOICING_TEMPLATES[chordType] || [];
+    return [...templates].sort((a, b) => {
+      const da = Math.min((rootNote - a.nativeRoot + 12) % 12, (a.nativeRoot - rootNote + 12) % 12);
+      const db = Math.min((rootNote - b.nativeRoot + 12) % 12, (b.nativeRoot - rootNote + 12) % 12);
+      return da - db;
+    });
+  }, [chordType, rootNote]);
+
   const chordVoicingData = useMemo(() => {
     if (mode !== "chords") return null;
-    const templates = CHORD_VOICING_TEMPLATES[chordType] || [];
-    const idx = Math.min(chordVoicingIdx, templates.length - 1);
-    const template = templates[idx];
+    const idx = Math.min(chordVoicingIdx, sortedChordTemplates.length - 1);
+    const template = sortedChordTemplates[idx];
     if (!template) return null;
     const absoluteFrets = getVoicingFrets(rootNote, template);
     return { template, absoluteFrets };
-  }, [mode, chordType, chordVoicingIdx, rootNote]);
+  }, [mode, sortedChordTemplates, chordVoicingIdx, rootNote]);
 
   // ─── Cell info ────────────────────────────────────────────────────────────
 
@@ -659,6 +608,7 @@ export default function App() {
           <TunerPanel
             tunerActive={tunerActive} tunerNote={tunerNote} tunerError={tunerError}
             startTuner={startTuner} stopTuner={stopTuner}
+            activeTuning={activeTuning} tuningKey={tuningKey}
           />
         )}
         {mode === "metronome" && (
@@ -666,8 +616,6 @@ export default function App() {
             bpm={bpm} setBpm={setBpm} beatsPerBar={beatsPerBar} setBeatsPerBar={setBeatsPerBar}
             isPlaying={metroPlaying} currentBeat={currentBeat}
             onStart={startMetronome} onStop={stopMetronome} onTap={handleTap}
-            timingActive={timingActive} timingHits={timingHits} timingError={timingError}
-            onToggleTiming={() => timingActive ? stopTiming() : startTiming()}
           />
         )}
 
@@ -746,13 +694,13 @@ export default function App() {
           </div>
 
           {/* ── Fretboard ──────────────────────────────────────────────── */}
-          <div style={{ overflowX:"auto", paddingBottom:4, direction: leftHanded ? "rtl" : "ltr" }}>
-            <div style={{ minWidth:totalWidth+40, position:"relative", direction:"ltr" }}>
+          <div style={{ overflowX:"auto", paddingBottom:4 }}>
+            <div style={{ minWidth:totalWidth+40, position:"relative", transform: leftHanded ? "scaleX(-1)" : "none" }}>
 
               {/* Fret numbers */}
               <div style={{ display:"flex", marginLeft:30, marginBottom:4 }}>
                 {fretWidths.map((w, f) => (
-                  <div key={f} style={{ width:w, textAlign:"center", fontSize:"0.5625rem", color:"#b5b1aa", flexShrink:0, fontWeight:400, letterSpacing:"0.05em" }}>
+                  <div key={f} style={{ width:w, textAlign:"center", fontSize:"0.5625rem", color:"#b5b1aa", flexShrink:0, fontWeight:400, letterSpacing:"0.05em", transform: leftHanded ? "scaleX(-1)" : "none" }}>
                     {f === 0 ? "" : f}
                   </div>
                 ))}
@@ -776,7 +724,7 @@ export default function App() {
                 {/* Strings */}
                 {activeTuning.map((_, s) => (
                   <div key={s} style={{ display:"flex", alignItems:"center", height:36 }}>
-                    <div style={{ width:30, textAlign:"center", fontSize:"0.625rem", fontWeight:400, color:"#b5b1aa", flexShrink:0, zIndex:3, letterSpacing:"0.05em" }}>
+                    <div style={{ width:30, textAlign:"center", fontSize:"0.625rem", fontWeight:400, color:"#b5b1aa", flexShrink:0, zIndex:3, letterSpacing:"0.05em", transform: leftHanded ? "scaleX(-1)" : "none" }}>
                       {STRING_NAMES[s]}
                     </div>
                     {fretWidths.map((w, f) => {
@@ -810,7 +758,7 @@ export default function App() {
                               transform: isHov && !cell.dimmed ? "scale(1.15)" : "scale(1)",
                               transition:"transform 0.12s",
                             }}>
-                              {cell.dimmed ? "" : (cell.label || cell.noteName)}
+                              {cell.dimmed ? "" : <span style={{ transform: leftHanded ? "scaleX(-1)" : "none", display:"inline-block" }}>{cell.label || cell.noteName}</span>}
                             </div>
                           ) : isHov && f > 0 ? (
                             <div style={{
@@ -819,7 +767,7 @@ export default function App() {
                               fontSize:"0.5rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
                               zIndex:2, position:"relative",
                             }}>
-                              {NOTES[(activeTuning[s]+f)%12]}
+                              <span style={{ transform: leftHanded ? "scaleX(-1)" : "none", display:"inline-block" }}>{NOTES[(activeTuning[s]+f)%12]}</span>
                             </div>
                           ) : null}
                         </div>
@@ -944,11 +892,12 @@ export default function App() {
             <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
               <p style={sectionLabel}>Griffvarianten — {displayName(rootNote)} {chordType}</p>
               <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
-                {(CHORD_VOICING_TEMPLATES[chordType] || []).map((tmpl, i) => (
+                {sortedChordTemplates.map((tmpl, i) => (
                   <ChordDiagram
-                    key={i} rootNote={rootNote} template={tmpl}
+                    key={tmpl.name} rootNote={rootNote} template={tmpl}
                     isActive={chordVoicingIdx === i}
                     onClick={() => setChordVoicingIdx(i)}
+                    leftHanded={leftHanded}
                   />
                 ))}
               </div>
@@ -963,7 +912,7 @@ export default function App() {
 
 // ─── Tuner Panel ──────────────────────────────────────────────────────────────
 
-function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner }) {
+function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner, activeTuning, tuningKey }) {
   const cents = tunerNote?.cents ?? 0;
   const inTune = tunerNote && Math.abs(cents) <= 5;
   const meterColor = inTune ? "#2ecc71" : Math.abs(cents) <= 20 ? "#e67e22" : ACCENT;
@@ -1006,20 +955,18 @@ function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner 
 
       {/* String reference */}
       <div style={{ background:CARD, borderRadius:3, border:`1px solid ${RULE}`, padding:"12px 14px" }}>
-        <p style={sectionLabel}>Standard-Stimmung</p>
+        <p style={sectionLabel}>Stimmung — {tuningKey}</p>
         <div style={{ display:"flex", gap:4 }}>
-          {GUITAR_STRING_FREQS.map((freq, i) => {
-            const sIdx = 5 - i;
-            const targetNote = TUNING[sIdx];
-            const isActive = tunerNote?.noteIdx === targetNote;
+          {activeTuning.map((noteIdx, sIdx) => {
+            const isActive = tunerNote?.noteIdx === noteIdx;
             const isTuned  = isActive && Math.abs(tunerNote.cents) <= 10;
             const bg = isTuned ? "#2ecc71" : isActive ? meterColor : "transparent";
             const bdr = isTuned ? "#2ecc71" : isActive ? meterColor : RULE;
             return (
-              <div key={i} style={{ flex:1, textAlign:"center" }}>
+              <div key={sIdx} style={{ flex:1, textAlign:"center" }}>
                 <div style={{ border:`1px solid ${bdr}`, borderRadius:2, padding:"7px 4px", background:bg, transition:"all 0.1s" }}>
                   <div style={{ fontSize:"0.875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace", color:isActive?"#fff":MUTED }}>{STRING_NAMES[sIdx]}</div>
-                  <div style={{ fontSize:"0.5rem", color:isActive?"rgba(255,255,255,0.65)":RULE, marginTop:1, letterSpacing:"0.03em" }}>{freq}</div>
+                  <div style={{ fontSize:"0.5rem", color:isActive?"rgba(255,255,255,0.65)":RULE, marginTop:1, letterSpacing:"0.03em" }}>{NOTES[noteIdx]}</div>
                 </div>
               </div>
             );
@@ -1046,7 +993,7 @@ function TunerPanel({ tunerActive, tunerNote, tunerError, startTuner, stopTuner 
 
 // ─── Metronome Panel ──────────────────────────────────────────────────────────
 
-function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, currentBeat, onStart, onStop, onTap, timingActive, timingHits, timingError, onToggleTiming }) {
+function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, currentBeat, onStart, onStop, onTap }) {
   const [bpmEditing, setBpmEditing] = useState(false);
   const btnBase = {
     border:`1px solid ${RULE}`, borderRadius:3, cursor:"pointer",
@@ -1058,10 +1005,6 @@ function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, c
     fontSize:"clamp(3.5rem,12vw,5rem)", lineHeight:1, letterSpacing:"-0.03em",
     minWidth:"3.5ch", textAlign:"center", transition:"color 0.2s",
   };
-  const timingScore = timingHits.length > 0
-    ? Math.round(timingHits.filter(h => h.quality === "gut").length / timingHits.length * 100)
-    : null;
-  const timingColors = { gut:"#2ecc71", knapp:"#e67e22", daneben:ACCENT };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
@@ -1100,21 +1043,6 @@ function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, c
           ))}
         </div>
 
-        {/* Timing hit dots */}
-        {timingActive && timingHits.length > 0 && (
-          <div style={{ marginTop:16, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
-            <div style={{ display:"flex", gap:6, justifyContent:"center" }}>
-              {timingHits.map((h, i) => (
-                <div key={i} style={{ width:10, height:10, borderRadius:"50%", background:timingColors[h.quality], transition:"background 0.1s" }} title={`${h.delta > 0 ? "+" : ""}${h.delta}ms`} />
-              ))}
-            </div>
-            {timingScore !== null && (
-              <div style={{ fontSize:"0.6875rem", fontWeight:400, color: timingScore >= 80 ? "#2ecc71" : timingScore >= 50 ? "#e67e22" : ACCENT, letterSpacing:"0.06em" }}>
-                {timingScore}%
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Controls row */}
@@ -1130,51 +1058,35 @@ function MetronomePanel({ bpm, setBpm, beatsPerBar, setBeatsPerBar, isPlaying, c
         </button>
       </div>
 
-      {/* Play / Stop + Timing toggle */}
-      <div style={{ display:"flex", gap:8 }}>
-        <button onClick={isPlaying ? onStop : onStart} style={{
-          flex:2, padding:"12px 24px", border:`1px solid`, borderRadius:3, cursor:"pointer",
-          fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-          letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.2s",
-          background: isPlaying ? "transparent" : FG,
-          borderColor: isPlaying ? RULE : FG,
-          color:       isPlaying ? MUTED : BG,
-        }}>
-          {isPlaying ? "Stoppen" : "Starten"}
-        </button>
-        {isPlaying && (
-          <button onClick={onToggleTiming} style={{
-            flex:1, padding:"12px 14px", border:`1px solid`, borderRadius:3, cursor:"pointer",
-            fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
-            letterSpacing:"0.08em", textTransform:"uppercase", transition:"all 0.2s",
-            background: timingActive ? FG : "transparent",
-            borderColor: timingActive ? FG : RULE,
-            color:       timingActive ? BG : MUTED,
-          }}>
-            {timingActive ? "● Timing" : "Timing"}
-          </button>
-        )}
-      </div>
-
-      {timingError && <div style={{ color:ACCENT, fontSize:"0.75rem", textAlign:"center", fontWeight:400, letterSpacing:"0.04em" }}>{timingError}</div>}
+      {/* Play / Stop */}
+      <button onClick={isPlaying ? onStop : onStart} style={{
+        padding:"12px 24px", border:`1px solid`, borderRadius:3, cursor:"pointer",
+        fontSize:"0.6875rem", fontWeight:400, fontFamily:"'DM Mono','Menlo',monospace",
+        letterSpacing:"0.1em", textTransform:"uppercase", transition:"all 0.2s",
+        background: isPlaying ? "transparent" : FG,
+        borderColor: isPlaying ? RULE : FG,
+        color:       isPlaying ? MUTED : BG,
+      }}>
+        {isPlaying ? "Stoppen" : "Starten"}
+      </button>
     </div>
   );
 }
 
 // ─── Chord Diagram ────────────────────────────────────────────────────────────
 
-function ChordDiagram({ rootNote, template, isActive, onClick }) {
+function ChordDiagram({ rootNote, template, isActive, onClick, leftHanded }) {
   const frets = getVoicingFrets(rootNote, template);
-  const activeFrets = frets.filter(f => f !== -1);
+  const activeFrets = frets.filter(f => f !== -1 && f !== 0);
   const minFret = activeFrets.length ? Math.min(...activeFrets) : 1;
-  const maxFret = activeFrets.length ? Math.max(...activeFrets) : 5;
   const startFret = minFret <= 1 ? 1 : minFret;
   const FRETS = 5;
-  const SS = 16; // string spacing
-  const FS = 16; // fret spacing
+  const SS = 16;
+  const FS = 16;
   const PL = 18, PT = 24, PR = 8, PB = 16;
   const W = 5 * SS + PL + PR;
   const H = FRETS * FS + PT + PB;
+  const sx = (strIdx) => leftHanded ? PL + strIdx * SS : PL + (5 - strIdx) * SS;
 
   return (
     <div onClick={onClick} style={{
@@ -1196,11 +1108,11 @@ function ChordDiagram({ rootNote, template, isActive, onClick }) {
         ))}
         {/* String lines */}
         {Array.from({ length: 6 }, (_, i) => (
-          <line key={i} x1={PL + i * SS} x2={PL + i * SS} y1={PT} y2={PT + FRETS * FS} stroke={RULE} strokeWidth={1} />
+          <line key={i} x1={sx(i)} x2={sx(i)} y1={PT} y2={PT + FRETS * FS} stroke={RULE} strokeWidth={1} />
         ))}
         {/* Dots and mute/open markers */}
         {frets.map((f, strIdx) => {
-          const x = PL + (5 - strIdx) * SS;
+          const x = sx(strIdx);
           if (f === -1) return (
             <text key={strIdx} x={x} y={PT - 6} textAnchor="middle" fontSize={10} fill={MUTED} fontFamily="'DM Mono',monospace">×</text>
           );
