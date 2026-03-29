@@ -181,8 +181,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   useEffect(() => { const t = setTimeout(() => setLoading(false), 1500); return () => clearTimeout(t); }, []);
 
-  const [category, setCategory] = useState("theorie"); // "theorie" | "praxis"
-  const [mode, setMode]         = useState("scales");
+  const [category, setCategory] = useState("praxis"); // "theorie" | "praxis"
+  const [mode, setMode]         = useState("tuner");
 
   const [rootNote, setRootNote]       = useState(0);
   const [hoveredFret, setHoveredFret] = useState(null);
@@ -194,13 +194,6 @@ export default function App() {
 
   const [chordType, setChordType]             = useState("Dur");
   const [chordVoicingIdx, setChordVoicingIdx] = useState(0);
-
-  // Quiz
-  const [quizTarget,  setQuizTarget]  = useState(null);  // { s, f, noteIdx }
-  const [quizChoices, setQuizChoices] = useState([]);
-  const [quizAnswer,  setQuizAnswer]  = useState(null);
-  const [quizScore,   setQuizScore]   = useState({ correct:0, total:0 });
-  const [quizStreak,  setQuizStreak]  = useState(0);
 
   // Settings
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -388,33 +381,6 @@ export default function App() {
   const activeFretCount = settings.fretCount  ?? 15;
   const activeTuning   = TUNING_PRESETS[tuningKey] ?? TUNING_PRESETS["Standard E"];
 
-  // ─── Quiz helpers ─────────────────────────────────────────────────────────
-
-  const newQuestion = useCallback(() => {
-    const s = Math.floor(Math.random() * 6);
-    const f = 1 + Math.floor(Math.random() * 12);
-    const noteIdx = (activeTuning[s] + f) % 12;
-    const wrong = [...Array(12).keys()].filter(n => n !== noteIdx)
-      .sort(() => Math.random() - 0.5).slice(0, 3);
-    const choices = [noteIdx, ...wrong].sort(() => Math.random() - 0.5);
-    setQuizTarget({ s, f, noteIdx });
-    setQuizChoices(choices);
-    setQuizAnswer(null);
-  }, [activeTuning]);
-
-  const handleQuizAnswer = useCallback((picked) => {
-    if (quizAnswer !== null || !quizTarget) return;
-    setQuizAnswer(picked);
-    const correct = picked === quizTarget.noteIdx;
-    setQuizScore(sc => ({ correct: sc.correct + (correct?1:0), total: sc.total + 1 }));
-    setQuizStreak(st => correct ? st + 1 : 0);
-    setTimeout(() => newQuestion(), correct ? 800 : 1500);
-  }, [quizAnswer, quizTarget, newQuestion]);
-
-  useEffect(() => {
-    if (mode === "quiz" && !quizTarget) newQuestion();
-  }, [mode, quizTarget, newQuestion]);
-
   useEffect(() => {
     if (mode === "chords") setChordVoicingIdx(0);
   }, [rootNote, mode]);
@@ -467,19 +433,6 @@ export default function App() {
       return { active: true, noteName, color: "#fff", bg: ACCENT, border: "#a33515", isRoot: false };
     }
 
-    if (mode === "quiz") {
-      if (!quizTarget || s !== quizTarget.s || f !== quizTarget.f) return { active: false, noteName };
-      if (quizAnswer === null) return { active: true, noteName, color: MUTED, bg: CARD, border: RULE, isRoot: false, label: "?" };
-      const correct = quizAnswer === quizTarget.noteIdx;
-      return {
-        active: true, noteName, isRoot: correct,
-        color: correct ? "#fff" : "#fff",
-        bg:    correct ? "#2ecc71" : ACCENT,
-        border:correct ? "#27ae60" : "#a33515",
-        label: noteName,
-      };
-    }
-
     if (mode === "chords") {
       if (!chordVoicingData) return { active: false, noteName };
       const { absoluteFrets } = chordVoicingData;
@@ -501,7 +454,7 @@ export default function App() {
     }
 
     return { active: false, noteName };
-  }, [mode, scaleNotes, rootNote, highlightRoot, finderNote, quizTarget, quizAnswer, chordVoicingData, chordType, activeTuning]);
+  }, [mode, scaleNotes, rootNote, highlightRoot, finderNote, chordVoicingData, chordType, activeTuning]);
 
   const fretWidths = useMemo(() => {
     const w = [];
@@ -512,25 +465,24 @@ export default function App() {
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
 
-  const CAT_LABELS = { theorie: "Schule", praxis: "Studio" };
+  const CAT_LABELS = { praxis: "Studio", theorie: "Theorie" };
 
-  const SCHULE_TABS = [
-    { id: "finder", label: "Töne"   },
-    { id: "scales", label: "Skalen" },
-    { id: "quiz",   label: "Quiz"   },
-  ];
   const STUDIO_TABS = [
     { id: "tuner",     label: "Stimmgerät" },
     { id: "metronome", label: "Metronom"   },
-    { id: "chords",    label: "Akkorde"    },
   ];
-  const currentTabs = category === "theorie" ? SCHULE_TABS : STUDIO_TABS;
+  const THEORIE_TABS = [
+    { id: "finder", label: "Töne"    },
+    { id: "scales", label: "Skalen"  },
+    { id: "chords", label: "Akkorde" },
+  ];
+  const currentTabs = category === "praxis" ? STUDIO_TABS : THEORIE_TABS;
 
   const switchCategory = (cat) => {
     if (cat === category) return;
     setCategory(cat);
-    if (cat === "theorie") { setMode("finder"); stopTuner(); stopMetronome(); }
-    else                   { setMode("tuner");  stopMetronome(); }
+    if (cat === "praxis")  { setMode("tuner");  stopMetronome(); }
+    else                   { setMode("finder"); stopTuner(); stopMetronome(); }
   };
 
   return (
@@ -592,7 +544,7 @@ export default function App() {
 
         {/* ── Category bar ────────────────────────────────────────────────── */}
         <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${RULE}`, marginBottom:0 }}>
-          {["theorie","praxis"].map(cat => (
+          {["praxis","theorie"].map(cat => (
             <button key={cat} onClick={() => switchCategory(cat)} style={{
               padding:"6px 0 9px", marginRight:24, border:"none",
               borderBottom: category===cat ? `1px solid ${FG}` : "1px solid transparent",
@@ -636,7 +588,7 @@ export default function App() {
         )}
 
         {/* ── Fretboard modes ────────────────────────────────────────────── */}
-        {(category === "theorie" || mode === "chords") && (<>
+        {category === "theorie" && (<>
 
           {/* Controls */}
           <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"flex-end" }}>
@@ -690,15 +642,6 @@ export default function App() {
               <span style={{ color:MUTED }}>Alle </span>
               <span style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic", fontSize:"0.9375rem", color:ACCENT }}>{displayName(finderNote)}</span>
               <span style={{ color:MUTED }}> auf dem Griffbrett</span>
-            </span>}
-
-            {mode === "quiz" && <span>
-              {quizAnswer === null
-                ? <span style={{ color:MUTED }}>Welche Note ist das?</span>
-                : quizAnswer === quizTarget?.noteIdx
-                  ? <span style={{ color:"#2ecc71", fontWeight:400 }}>Richtig — {displayName(quizTarget.noteIdx)}</span>
-                  : <span style={{ color:ACCENT, fontWeight:400 }}>Falsch — es war {quizTarget ? displayName(quizTarget.noteIdx) : "?"}</span>
-              }
             </span>}
 
             {mode === "chords" && chordVoicingData && <span>
@@ -863,43 +806,6 @@ export default function App() {
                     {STRING_NAMES[s]}{f===0?" leer":` Bund ${f}`}
                   </span>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {mode === "quiz" && (
-            <div style={{ marginTop:14, borderTop:`1px solid ${RULE}`, paddingTop:12 }}>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
-                {quizChoices.map(ni => {
-                  const answered = quizAnswer !== null;
-                  const isCorrect = ni === quizTarget?.noteIdx;
-                  const isPicked  = ni === quizAnswer;
-                  let bg = "transparent", borderColor = RULE, color = FG;
-                  if (answered) {
-                    if (isCorrect) { bg = "#2ecc7118"; borderColor = "#2ecc71"; color = "#1a7a45"; }
-                    else if (isPicked) { bg = `${ACCENT}18`; borderColor = ACCENT; color = ACCENT; }
-                    else { color = MUTED; }
-                  }
-                  return (
-                    <button key={ni} onClick={() => handleQuizAnswer(ni)} disabled={answered} style={{
-                      flex:"1 1 80px", padding:"12px 8px", border:`1px solid ${borderColor}`, borderRadius:3,
-                      cursor: answered ? "default" : "pointer", background:bg, color, transition:"all 0.15s",
-                      fontSize:"0.9375rem", fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:"italic",
-                      fontWeight:400,
-                    }}>
-                      {displayName(ni)}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ display:"flex", gap:12, alignItems:"center", fontSize:"0.6875rem", color:MUTED, flexWrap:"wrap" }}>
-                <span>Richtig: <span style={{ color:FG, fontWeight:400 }}>{quizScore.correct}/{quizScore.total}</span></span>
-                {quizStreak >= 2 && <span>Streak: <span style={{ color:ACCENT, fontWeight:400 }}>{quizStreak}</span></span>}
-                <button onClick={newQuestion} style={{
-                  marginLeft:"auto", padding:"5px 12px", border:`1px solid ${RULE}`, borderRadius:2,
-                  cursor:"pointer", background:"transparent", color:MUTED, fontSize:"0.6875rem",
-                  fontFamily:"'DM Mono','Menlo',monospace", letterSpacing:"0.06em",
-                }}>Neue Frage</button>
               </div>
             </div>
           )}
